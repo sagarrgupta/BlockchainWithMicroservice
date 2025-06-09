@@ -1,0 +1,65 @@
+services:
+  # ─── 1) user_service (bootstrap) ─────────────────────────────────────────
+  user_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ROLE=user_contract
+      - PORT=5002
+      - BOOTSTRAP_HOST=user_service
+      - BOOTSTRAP_PORT=5002
+    command: ["user.py", "5002"]
+    ports:
+      - "5002:5002"
+    networks:
+      - bcnet
+    healthcheck:
+      start_period: 2s
+      # Run the check once, then give up
+      retries: 1
+      test: ["CMD", "curl", "-f", "http://localhost:5002/chain"]
+      timeout: 2s
+      interval: 3s
+
+  # ─── 2) provider_service ─────────────────────────────────────────────────
+  provider_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ROLE=provider
+      - PORT=5003
+      - BOOTSTRAP_HOST=user_service
+      - BOOTSTRAP_PORT=5002
+    command: ["provider.py", "5003"]
+    ports:
+      - "5003:5003"
+    networks:
+      - bcnet
+    depends_on:
+      user_service:
+        condition: service_healthy
+
+  # ─── 3) requester_service ─────────────────────────────────────────────────
+  requester_service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - ROLE=requester
+      - PORT=5004
+      - BOOTSTRAP_HOST=user_service
+      - BOOTSTRAP_PORT=5002
+    command: ["requester.py", "5004"]
+    ports:
+      - "5004:5004"
+    networks:
+      - bcnet
+    depends_on:
+      user_service:
+        condition: service_healthy
+
+networks:
+  bcnet:
+    driver: bridge
