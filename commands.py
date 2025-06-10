@@ -42,3 +42,17 @@ docker rm   $(docker ps -a -q --filter "name=blockchainwithmicroservices") 2>/de
 # To start docker
 docker-compose build --no-cache              
 docker-compose up -d
+
+# To check the logs
+docker compose logs -f provider_service
+
+# To get into shell
+docker exec -it blockchainwithmicroservice-requester_service-1 sh
+
+# To send multiple requests
+curl http://provider_service:5003/user/1
+curl http://provider_service:5003/user/2
+curl http://provider_service:5003/user/3
+
+# To run more services
+docker compose up --scale provider_service=3;

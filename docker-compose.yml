@@ -32,9 +32,9 @@ services:
       - PORT=5003
       - BOOTSTRAP_HOST=user_service
       - BOOTSTRAP_PORT=5002
-    command: ["provider.py", "5003"]
-    ports:
-      - "5003:5003"
+    command: ["-u", "provider.py", "5003"]
+    # ports:
+    #   - "5003:5003"
     networks:
       - bcnet
     depends_on:

@@ -5,6 +5,7 @@ import requests
 from flask import Flask, jsonify, abort
 import node
 from node import BlockchainNode
+import os
 
 app = Flask(__name__)
 
@@ -28,6 +29,9 @@ def get_user(user_id):
     4) Look up on‐chain user (by id) in bc.users.
     5) Return JSON { "id":..., "name":..., "balance":... } or 404 if missing.
     """
+
+    # Log the container handling the request
+    print(f"[GET /user/{user_id}] Handled by container: {os.uname()[1]}")
 
     # ─── (1) Sync step ──────────────────────────────────────────────────────────
     longest_chain = node.bc.chain
