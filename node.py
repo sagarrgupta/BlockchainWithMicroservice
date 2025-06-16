@@ -177,7 +177,6 @@ class Blockchain:
         Simple PoW: find a number 'proof' such that SHA256(str(last_proof)+str(proof))
         starts with four leading zeros.
         """
-        return 1 # this is temporary
         proof = 0
         while not self.valid_proof(last_proof, proof):
             proof += 1
@@ -190,7 +189,7 @@ class Blockchain:
         """
         guess = f'{last_proof}{proof}'.encode()
         guess_hash = hashlib.sha256(guess).hexdigest()
-        return guess_hash[:4] == "0000"
+        return guess_hash[:1] == "0"
 
     # ─── HASHING ────────────────────────────────────────────────────────────────
     @staticmethod

@@ -64,9 +64,16 @@ curl http://127.0.0.1:5003/request/1
 curl -X POST http://localhost:5003/update_resource/1/high
 
 # time it takes
-# normal: 7.63 ms
-# with blockchain with 1 block: 15.02 ms (96.8%)
-# with blockchain with 2 blocks: 21.34 ms (179.6%, 42.1%)
+# without blockchain between 2 nodes: 7.05 ms
+# without blockchain between 3 nodes: 4.64 ms
+# without blockchain between 5 nodes: 7.30 ms
+# without blockchain between 10 nodes: 13.278
+
+# with 1 block (2 nodes): 16.88 ms
+# with 2 blocks (2 nodes): 24.23 ms
+# with 3 blocks (3 nodes): 72.73 ms
+# with 5 blocks (5 nodes): 255.73.13 ms
+# with 10 blocks (5 nodes): 2374.79 ms
 
 # node1 = 2 chain - 5002
 # node2 = 2 chain
@@ -76,5 +83,29 @@ curl -X POST http://localhost:5003/update_resource/1/high
 # /customChangeToDatabase 
 
 """
+
+source venv/bin/activate
+python intermediary.py 5004 127.0.0.1:5005
+
+source venv/bin/activate
+python intermediary.py 5005 127.0.0.1:5006
+
+source venv/bin/activate
+python intermediary.py 5006 127.0.0.1:5007
+
+source venv/bin/activate
+python intermediary.py 5007 127.0.0.1:5008
+
+source venv/bin/activate
+python intermediary.py 5008 127.0.0.1:5009
+
+source venv/bin/activate
+python intermediary.py 5009 127.0.0.1:5010
+
+source venv/bin/activate
+python intermediary.py 5010 127.0.0.1:5011
+
+source venv/bin/activate
+python intermediary.py 5011 127.0.0.1:5003
 
 """

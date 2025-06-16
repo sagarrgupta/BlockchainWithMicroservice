@@ -28,6 +28,7 @@ def request_user(user_id):
     3) Call the provider service at /user/<user_id> to get actual data.
     4) Return that data (or 404).
     """
+    start_time = time.time()
     # (1) Sync step: adopt the longest chain from peers
     longest_chain = node.bc.chain
     for peer in node.bc.get_node_addresses():
@@ -75,7 +76,13 @@ def request_user(user_id):
 
     # (4) Fetch actual data from selected provider
     try:
+        intermediary_addr = "127.0.0.1:5004"
         resp = requests.get(f"http://{provider_addr}/city/{user_id}", timeout=5)
+        if resp.status_code == 200:
+            timeItTook = (time.time() - start_time) * 1000  # convert to milliseconds
+            return jsonify({
+                "message": f"Data fetched and time it took was {round(timeItTook, 2)} ms"
+            }), 200
     except requests.exceptions.RequestException:    
         return abort(503, description="Cannot reach provider service")
 
@@ -154,8 +161,9 @@ def update_resource_allocation(city_id, risk_level):
 
     # (5) Call provider service to update the resource allocation
     try:
+        intermediary_addr = "127.0.0.1:5004"
         response = requests.post(
-            f"http://{provider_addr}/update_resource/{city_id}/{risk_level}",
+            f"http://{intermediary_addr}/update_resource/{city_id}/{risk_level}",
             timeout=3
         )
         if response.status_code == 200:
