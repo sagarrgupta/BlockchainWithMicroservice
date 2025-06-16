@@ -56,3 +56,25 @@ curl http://provider_service:5003/user/3
 
 # To run more services
 docker compose up --scale provider_service=3;
+
+# To get resource
+curl http://127.0.0.1:5003/request/1
+
+# To update resource
+curl -X POST http://localhost:5003/update_resource/1/high
+
+# time it takes
+# normal: 7.63 ms
+# with blockchain with 1 block: 15.02 ms (96.8%)
+# with blockchain with 2 blocks: 21.34 ms (179.6%, 42.1%)
+
+# node1 = 2 chain - 5002
+# node2 = 2 chain
+# node3 = 1 chain -> register -> it passes longest chain -> copy local -> 2 chain
+
+# shouldExternalUserCanChange = true/false
+# /customChangeToDatabase 
+
+"""
+
+"""

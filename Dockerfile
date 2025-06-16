@@ -15,6 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 2) Copy all of our Python code into /app
 COPY . .
 
+# Create the database when container starts
+RUN python db_setup.py
+
 # 3) Expose the ports
 EXPOSE 5002 5003 5004
 

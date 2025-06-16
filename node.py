@@ -177,6 +177,7 @@ class Blockchain:
         Simple PoW: find a number 'proof' such that SHA256(str(last_proof)+str(proof))
         starts with four leading zeros.
         """
+        return 1 # this is temporary
         proof = 0
         while not self.valid_proof(last_proof, proof):
             proof += 1
