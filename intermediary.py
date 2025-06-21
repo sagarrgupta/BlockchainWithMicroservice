@@ -19,61 +19,55 @@ next_hop = sys.argv[2] if len(sys.argv) >= 3 else "127.0.0.1:5003"  # default to
 # Launch this as a blockchain node
 my_node = BlockchainNode(app, desired_port=requested_port, role="intermediary")
 
-@app.route('/request/<int:user_id>', methods=['GET'])
-def forward_request(user_id):
+@app.route('/request/<int:city_id>', methods=['GET'])
+def forward_request(city_id):
     """
-    1. Sync chain
-    2. Mine a block with dummy transaction
-    3. Broadcast the block
-    4. Forward the GET to next hop (intermediary or provider)
-    5. Return the final result
+    New flow:
+    1. Forward the GET to next hop (provider).
+    2. Collect blockTransactionData from provider's response.
+    3. Add intermediary's own blockTransactionData.
+    4. Return both the data and the list of blockTransactionData to the requester.
     """
-    print(f"[GET /request/{user_id}] Handled by intermediary: {my_node.MY_ADDRESS}")
-
-    # # (1) Sync chain
-    # longest_chain = node.bc.chain
-    # for peer in node.bc.get_node_addresses():
-    #     try:
-    #         r = requests.get(f"http://{peer}/chain", timeout=3)
-    #         if r.status_code == 200:
-    #             data = r.json()
-    #             if data['length'] > len(longest_chain) and node.bc.valid_chain(data['chain']):
-    #                 longest_chain = data['chain']
-    #     except:
-    #         continue
-    # node.bc.chain = longest_chain.copy()
-
-    # # (2) Create a dummy transaction and mine a block
-    # node.bc.new_transaction(
-    #     sender=f"intermediary_{my_node.MY_ADDRESS}",
-    #     recipient="all"
-    # )
-    # last_proof = node.bc.last_block['proof']
-    # proof = node.bc.proof_of_work(last_proof)
-    # block = node.bc.new_block(proof, mined_by=f"intermediary_{my_node.MY_ADDRESS}")
-
-    # # (3) Broadcast to peers
-    # for peer in node.bc.get_node_addresses():
-    #     try:
-    #         requests.get(f"http://{peer}/sync", timeout=2)
-    #         requests.post(f"http://{peer}/receive_block", json={"block": block}, timeout=2)
-    #     except:
-    #         continue
-
-    # (4) Forward to next hop's /request or /city endpoint
+    print(f"[GET /request/{city_id}] Handled by intermediary: {my_node.MY_ADDRESS}")
+    block_transactions = []
+    provider_data = None
     try:
-        # If final hop is provider, use /city/<id>, else /request/<id>
+        # If final hop is provider, use /city/<id>
         if next_hop.endswith(":5003"):
             print(f"→ Forwarding to provider: {next_hop}")
-            response = requests.get(f"http://{next_hop}/city/{user_id}", timeout=3)
+            response = requests.get(f"http://{next_hop}/city/{city_id}", timeout=3)
         else:
             print(f"→ Forwarding to next intermediary: {next_hop}")
-            response = requests.get(f"http://{next_hop}/request/{user_id}", timeout=3)
-
+            response = requests.get(f"http://{next_hop}/request/{city_id}", timeout=3)
         if response.status_code == 404:
-            return jsonify({"error": "User not found"}), 404
-        return jsonify(response.json()), 200
+            return jsonify({"error": "city not found"}), 404
+        if response.status_code != 200:
+            return jsonify({"error": "Provider/intermediary error"}), 503
+        data = response.json()
+        provider_data = data.get("city_data") or data
 
+        # (3) Add intermediary's own blockTransactionData FIRST
+        my_block_tx = {
+            "sender": f"intermediary_{my_node.MY_ADDRESS}",
+            "recipient": "BackToSender",
+            "requestInfo": f"/request/{city_id}"
+        }
+        block_transactions.append(my_block_tx)
+
+        # (2) Collect blockTransactionData from provider/intermediary and append after
+        block_tx = data.get("blockTransactionData")
+        block_tx_list = data.get("blockTransactionDataList")
+        if block_tx_list:
+            block_transactions.extend(block_tx_list)
+        elif block_tx:
+            block_transactions.append(block_tx)
+
+        # (4) Return both the data and the blockTransactionData list
+        return jsonify({
+        "city_data": provider_data,
+        "blockTransactionDataList": block_transactions
+        }), 200
+        
     except requests.exceptions.RequestException:
         return abort(503, description=f"Cannot reach next hop at {next_hop}")
 

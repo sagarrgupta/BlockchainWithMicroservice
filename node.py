@@ -21,13 +21,9 @@ class Blockchain:
         self.local_node = None         # this node's own address (host:port)
         self.bootstrap_node = None     # will store BOOTSTRAP_HOST
         self.mining_in_progress = False
-
-        # ─── ON‐CHAIN USER STORAGE ───────────────────────────────────────────────
-        # Each entry: user_id:int → {"name": str, "balance": float}
         self.users = {}
-
         # Creating the genesis block
-        self.new_block(previous_hash='1', proof=100, mined_by="Genesis")
+        self.new_block(previous_hash='1', proof=100, mined_by="Genesis", transactions=[], timestamp=time())
 
     # ─── NODE REGISTRATION / ROLES ───────────────────────────────────────────────
     def register_node(self, address, is_local=False):
@@ -117,29 +113,25 @@ class Blockchain:
         return False
 
     # ─── BLOCK & TRANSACTION MANAGEMENT ────────────────────────────────────────
-    def new_block(self, proof, previous_hash=None, mined_by="Unknown"):
+    def new_block(self, proof, previous_hash=None, mined_by="Unknown", transactions=None, timestamp=None):
         """
         Create a new block in the blockchain:
         - proof: the proof-of-work found
         - previous_hash: hash of previous block (optional)
         - mined_by: identifier of miner
-        Reset current_transactions and append block to chain.
-        Then call apply_contracts(block) to update on-chain state.
+        - transactions: list of blockTransactionData dicts
+        - timestamp: time of block mined
         """
         block = {
             'index': len(self.chain) + 1,
-            'timestamp': time(),
-            'transactions': self.current_transactions.copy(),
+            'timestamp': timestamp if timestamp is not None else time(),
+            'transactions': transactions if transactions is not None else self.current_transactions.copy(),
             'proof': proof,
             'previous_hash': previous_hash or self.hash(self.chain[-1]),
             'mined_by': mined_by
         }
-        # Clear the current list of transactions
         self.current_transactions = []
-        # Append the new block
         self.chain.append(block)
-
-        # Apply contract logic on any transactions in this block
         self.apply_contracts(block)
         return block
 
@@ -317,10 +309,8 @@ def register_nodes():
 @blockchain_bp.route('/receive_block', methods=['POST'])
 def receive_block():
     """
-    1) Validate incoming block's previous_hash and proof.  
-    2) If valid and extends our chain, append → apply_contracts(block) → broadcast to peers.  
-    3) If index > expected, return 409 ("please sync").  
-    4) If duplicate/old, return 200.
+    Accepts a block with 'timestamp' and 'transactions' fields (plus others).
+    Validates and appends if valid.
     """
     data = request.get_json()
     block = data.get('block')
@@ -332,37 +322,38 @@ def receive_block():
         return "Missing block fields", 400
 
     last = bc.last_block
-    # Case: new block extends our chain
     if block['index'] == last['index'] + 1:
+        # Validate previous_hash and proof
         if block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
             bc.chain.append(block)
-            bc.apply_contracts(block)  # update on-chain state
-            # Broadcast this block onward
+            bc.apply_contracts(block)
+            # Broadcast to peers
             for peer in bc.get_node_addresses():
                 try:
                     requests.post(f"http://{peer}/receive_block", json={'block': block}, timeout=2)
-                except requests.exceptions.RequestException:
+                except:
                     pass
-            return "Block added", 201
+            return jsonify({"message": "Block accepted"}), 201
         else:
-            return "Invalid proof or previous_hash", 400
-
-    # Case: block is ahead of us → we need to sync instead
+            return jsonify({"error": "Invalid block"}), 400
     elif block['index'] > last['index'] + 1:
-        return "Chain out of sync, please sync", 409
-
-    # Case: block.index <= last.index → we already have it or this is old
+        return jsonify({"error": "Block index too high, please sync"}), 409
     else:
-        return "Block already exists", 200
+        return jsonify({"message": "Block already exists or is old"}), 200
 
 
 @blockchain_bp.route('/chain', methods=['GET'])
 def full_chain():
     """
     Return our local chain as JSON:
-    { "chain": [<block>, …], "length": <int> }
+    { "chain": [{"timestamp":..., "transactions": [...]}, ...], "length": <int> }
     """
     return jsonify(bc.to_dict()), 200
+    # chain_summary = [{
+    #     "timestamp": block["timestamp"],
+    #     "transactions": block["transactions"]
+    # } for block in bc.chain]
+    # return jsonify({"chain": chain_summary, "length": len(bc.chain)}), 200
 
 
 @blockchain_bp.route('/sync', methods=['GET'])
