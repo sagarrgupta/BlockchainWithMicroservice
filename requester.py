@@ -82,6 +82,8 @@ def request_city(city_id):
     return jsonify(response_json), 200
 
 def mine_and_broadcast_block(blockTransactions):
+    # start time for block propagation
+    node.bc.startTime.append(time.time())
     # Sync step: adopt the longest chain from peers
     longest_chain = node.bc.chain
     for peer in node.bc.get_node_addresses():
@@ -96,16 +98,27 @@ def mine_and_broadcast_block(blockTransactions):
         except:
             continue
     node.bc.chain = longest_chain.copy()
+    node.bc.chainSyncedTime.append(time.time())
     # Mine a single block with all collected blockTransactionData as transactions
     node.bc.current_transactions = blockTransactions
     last_proof = node.bc.last_block['proof']
     proof = node.bc.proof_of_work(last_proof)
     new_block = node.bc.new_block(proof, mined_by=f"requester_{my_node.MY_ADDRESS}")
     # Log mining start time
+    node.bc.blockMinedTime.append(time.time())
     mining_start = time.time()
     # Broadcast the newly mined block to all peers and wait for responses
     peer_results = []
-    for peer in node.bc.get_node_addresses():
+    peers = node.bc.get_node_addresses()
+    # Move provider to the end of the list
+    provider_peer = None
+    for peer in peers:
+        if "provider" in peer:
+            provider_peer = peer
+            break
+    if provider_peer:
+        peers = [p for p in peers if p != provider_peer] + [provider_peer]
+    for peer in peers:
         try:
             resp = requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
             peer_results.append((peer, resp.status_code))

@@ -22,6 +22,12 @@ class Blockchain:
         self.bootstrap_node = None     # will store BOOTSTRAP_HOST
         self.mining_in_progress = False
         self.users = {}
+        
+        # ─── Block Propagation State ─────────────────────────────────────────────
+        self.startTime = []
+        self.chainSyncedTime = []
+        self.blockMinedTime = []
+        self.endTime = []
         # Creating the genesis block
         self.new_block(previous_hash='1', proof=100, mined_by="Genesis", transactions=[], timestamp=time())
 
@@ -289,7 +295,7 @@ def register_nodes():
             bc.register_node(node_addr, is_local=is_local)
             if role:
                 bc.set_peer_role(node_addr, role)
-
+                
     # 2) Build response list of ALL known peers (ourselves + others)
     peer_list = []
     if bc.local_node:
@@ -308,6 +314,7 @@ def register_nodes():
 
 @blockchain_bp.route('/receive_block', methods=['POST'])
 def receive_block():
+    import time
     """
     Accepts a block with 'timestamp' and 'transactions' fields (plus others).
     Validates and appends if valid.
@@ -327,6 +334,10 @@ def receive_block():
         if block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
             bc.chain.append(block)
             bc.apply_contracts(block)
+            # If the current node is provider role, then add endTime logic
+            if bc.peers_roles.get(bc.local_node) == "provider":
+                bc.endTime.append(time.time())
+
             # Broadcast to peers
             for peer in bc.get_node_addresses():
                 try:
@@ -429,6 +440,26 @@ def mine():
         "chain_length": len(bc.chain)
     }), 200
 
+
+@blockchain_bp.route('/block_propagation_metrics', methods=['GET'])
+def block_propagation_metrics_endpoint():
+    def avg(arr):
+        return sum(arr) / len(arr) if arr else 0
+
+    metrics = {
+        "startTime_avg": avg(bc.startTime),
+        "chainSyncedTime_avg": avg(bc.chainSyncedTime),
+        "blockMinedTime_avg": avg(bc.blockMinedTime),
+        "endTime_avg": avg(bc.endTime)
+    }
+
+    # Reset the arrays after retrieving the values
+    bc.startTime.clear()
+    bc.chainSyncedTime.clear()
+    bc.blockMinedTime.clear()
+    bc.endTime.clear()
+
+    return jsonify(metrics), 200
 
 # ─── BlockchainNode Wrapper ─────────────────────────────────────────────────────
 class BlockchainNode:
