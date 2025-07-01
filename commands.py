@@ -41,7 +41,7 @@ docker rm   $(docker ps -a -q --filter "name=blockchainwithmicroservices") 2>/de
 
 # To start docker
 docker-compose build --no-cache              
-docker-compose up -d
+docker-compose up -d --remove-orphans
 
 # To check the logs
 docker compose logs -f provider_service
@@ -55,13 +55,31 @@ curl http://provider_service:5003/user/2
 curl http://provider_service:5003/user/3
 
 # To run more services
+docker compose up --scale requester_service=3;
 docker compose up --scale provider_service=3;
-
+docker compose up --scale master_service=3;
+docker compose up --scale master_service=3 --scale requester_service=5
 # To get resource
 curl http://127.0.0.1:5003/request/1
 
 # To update resource
 curl -X POST http://localhost:5003/update_resource/1/high
+
+# To stop the docker
+docker compose down
+
+# To run the bootstrap node
+docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl http://localhost:5003/request/1
+docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl -X POST http://localhost:5003/update_resource/1/high
+
+# To get the block propagation metrics
+docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl http://localhost:5003/block_propagation_metrics
+curl http://localhost:5004/block_propagation_metrics
+
+docker exec -it dbb2f1c89d7ef13833ba491f9735bf813898fcea098d9892e29ffb16dfe8e99d curl http://localhost:5003/chain
+docker exec -it 0c4a98e347db13f59fe365ff003397b639b52cd5a7676f59c569f39d23440658 curl http://localhost:5003/chain
+docker exec -it 7f8a2d094bda27cd07887b37b732914fe01ffe693a71713aece35ee139a484fe curl http://localhost:5002/chain
+curl http://localhost:5004/chain
 
 # time it takes
 # without blockchain between 2 nodes: 7.05 ms

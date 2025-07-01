@@ -6,8 +6,10 @@ def setup_database():
     """
     Create SQLite database with disaster management resource allocation data
     """
+    # Ensure /data directory exists
+    os.makedirs('/data', exist_ok=True)
     # Create database file
-    db_path = 'disaster_resources.db'
+    db_path = '/data/disaster_resources.db'
     
     # Remove existing database if it exists
     if os.path.exists(db_path):

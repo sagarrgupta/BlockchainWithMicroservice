@@ -26,7 +26,7 @@ def get_city_resources(city_id):
     Fetch disaster management resource data from local SQLite database
     """
     try:
-        conn = sqlite3.connect('disaster_resources.db')
+        conn = sqlite3.connect('/data/disaster_resources.db')
         cursor = conn.cursor()
         
         cursor.execute('''
@@ -143,7 +143,7 @@ def update_resource(city_id, risk_level):
         return jsonify({"error": "Invalid risk level"}), 400
         
     try:
-        conn = sqlite3.connect('disaster_resources.db')
+        conn = sqlite3.connect('/data/disaster_resources.db')
         cursor = conn.cursor()
         
         # Update the resources_allocated and disaster_risk_level
@@ -189,7 +189,7 @@ def direct_update_resource(city_id, risk_level):
         return jsonify({"error": "Invalid risk level"}), 400
         
     try:
-        conn = sqlite3.connect('disaster_resources.db')
+        conn = sqlite3.connect('/data/disaster_resources.db')
         cursor = conn.cursor()
         
         # Update the resources_allocated and disaster_risk_level

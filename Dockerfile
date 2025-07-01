@@ -6,6 +6,7 @@ WORKDIR /app
 # Installs curl library
 RUN apt-get update && \
     apt-get install -y curl && \
+    apt-get install -y sqlite3 && \
     rm -rf /var/lib/apt/lists/*
 
 # 1) Install Python dependencies
@@ -16,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create the database when container starts
-RUN python db_setup.py
+# RUN python db_setup.py
 
 # 3) Expose the ports
 EXPOSE 5002 5003 5004

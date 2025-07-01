@@ -1,6 +1,6 @@
 # node.py
 import sys, threading, requests, hashlib, json
-from time   import time, sleep
+from time import time, sleep
 from urllib.parse import urlparse
 from flask  import Flask, request, jsonify, Blueprint, abort
 import os
@@ -14,6 +14,7 @@ BOOTSTRAP_ADDRESS = f"{BOOTSTRAP_HOST}:{BOOTSTRAP_PORT}"
 # ─── Blockchain Class ──────────────────────────────────────────────
 class Blockchain:
     def __init__(self):
+        self.master_peers = set()      # set of all known master peer addresses (excluding ourselves)
         self.chain = []
         self.current_transactions = []
         self.nodes = set()             # peer addresses (host:port)
@@ -22,11 +23,12 @@ class Blockchain:
         self.bootstrap_node = None     # will store BOOTSTRAP_HOST
         self.mining_in_progress = False
         self.users = {}
-        
         # ─── Block Propagation State ─────────────────────────────────────────────
         self.startTime = []
         self.chainSyncedTime = []
         self.blockMinedTime = []
+        self.blockPropagationTime = []
+        self.dataReceivedAtProviderTime = []
         self.endTime = []
         # Creating the genesis block
         self.new_block(previous_hash='1', proof=100, mined_by="Genesis", transactions=[], timestamp=time())
@@ -49,8 +51,13 @@ class Blockchain:
                 print(f"Added remote node: {node_address}")
 
     def set_peer_role(self, address, role):
-        """Record a peer's role (e.g. 'provider', 'requester', 'user_contract')."""
+        """Record a peer's role (e.g. 'provider', 'requester', 'user_contract', 'master')."""
         self.peers_roles[address] = role
+        # Maintain master_peers set
+        if role == "master" and address != self.local_node:
+            self.master_peers.add(address)
+        elif address in self.master_peers:
+            self.master_peers.discard(address)
 
     def get_node_addresses(self):
         """Return a list of all peer addresses (excluding ourselves)."""
@@ -211,46 +218,60 @@ class Blockchain:
         """
         For each transaction in the newly‐appended block, check if it has a
         'contract_id'. If so, dispatch to the corresponding on‐chain logic:
-          - "add_user"
-          - "transfer"
+          - "update_resource_allocation"
         """
         for tx in block['transactions']:
             cid = tx.get('contract_id', "")
             payload = tx.get('contract_payload', {})
 
-            if cid == "add_user":
-                # payload: {"id": <int>, "name": <str>, "initial_balance": <number>}
-                user_id = payload.get("id")
-                name    = payload.get("name")
-                bal     = payload.get("initial_balance", 0)
-                if isinstance(user_id, int) and name and user_id not in self.users:
-                    self.users[user_id] = {
-                        "name": name,
-                        "balance": bal
+            if cid == "update_resource_allocation":
+                # Only provider nodes should update the DB
+                if self.peers_roles.get(self.local_node, None) == payload.get("authority"):
+                    self.dataReceivedAtProviderTime.append(time())
+                    city_id = payload.get("city_id")
+                    risk_level = payload.get("risk_level")
+                    # Map risk levels to resource amounts
+                    resource_map = {
+                        "low": 100,
+                        "medium": 200,
+                        "high": 300,
+                        "veryHigh": 400,
+                        "Very High": 400
                     }
-                    print(f"  ▶️ Contract 'add_user' succeeded: id={user_id}, name={name}, bal={bal}")
+                    if not city_id or not risk_level:
+                        print(f"[update_resource] Missing city_id or risk_level in payload: {payload}")
+                        continue
+                    try:
+                        import sqlite3, os
+                        db_path = "/data/disaster_resources.db"
+                        if not os.path.exists(db_path):
+                            print(f"[update_resource] DB not found at {db_path}")
+                            continue
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        # Update only the risk level and resources_allocated
+                        rl_key = risk_level.lower() if risk_level.lower() in resource_map else risk_level
+                        resources_allocated = resource_map.get(rl_key, None)
+                        if resources_allocated is None:
+                            print(f"[update_resource] Invalid risk_level: {risk_level}")
+                            conn.close()
+                            continue
+                        cursor.execute('''
+                            UPDATE disaster_resources 
+                            SET resources_allocated = ?, disaster_risk_level = ?
+                            WHERE city_id = ?
+                        ''', (resources_allocated, risk_level, city_id))
+                        if cursor.rowcount == 0:
+                            print(f"[update_resource] City not found: {city_id}")
+                        else:
+                            print(f"[update_resource] Updated city_id {city_id} to risk_level {risk_level}")
+                        conn.commit()
+                        conn.close()
+                        self.endTime.append(time())
+                    except Exception as e:
+                        print(f"[update_resource] DB error: {e}")
                 else:
-                    print(f"  ⚠️ Contract 'add_user' skipped/invalid: {payload}")
-
-            elif cid == "transfer":
-                # payload: {"from_id": <int>, "to_id": <int>, "amount": <number>}
-                src = payload.get("from_id")
-                dst = payload.get("to_id")
-                amt = payload.get("amount", 0)
-                if (
-                    isinstance(src, int)
-                    and isinstance(dst, int)
-                    and isinstance(amt, (int, float))
-                    and src in self.users
-                    and dst in self.users
-                    and self.users[src]["balance"] >= amt
-                ):
-                    self.users[src]["balance"] -= amt
-                    self.users[dst]["balance"] += amt
-                    print(f"  ▶️ Contract 'transfer' succeeded: {amt} from id={src} → id={dst}")
-                else:
-                    print(f"  ⚠️ Contract 'transfer' failed or invalid: {payload}")
-
+                    print(f"[update_resource] Not a provider node, skipping DB update.")
             # else: unrecognized or no contract_id → do nothing
 
 
@@ -338,12 +359,20 @@ def receive_block():
             if bc.peers_roles.get(bc.local_node) == "provider":
                 bc.endTime.append(time.time())
 
-            # Broadcast to peers
-            for peer in bc.get_node_addresses():
-                try:
-                    requests.post(f"http://{peer}/receive_block", json={'block': block}, timeout=2)
-                except:
-                    pass
+            # --- Master node: gossip only to other master nodes ---
+            if bc.peers_roles.get(bc.local_node) == "master":
+                for peer in bc.master_peers:
+                    try:
+                        requests.post(f"http://{peer}/receive_block", json={'block': block}, timeout=2)
+                    except:
+                        pass
+            else:
+                # Non-master: propagate to all peers as before
+                for peer in bc.get_node_addresses():
+                    try:
+                        requests.post(f"http://{peer}/receive_block", json={'block': block}, timeout=2)
+                    except:
+                        pass
             return jsonify({"message": "Block accepted"}), 201
         else:
             return jsonify({"error": "Invalid block"}), 400
@@ -360,6 +389,19 @@ def full_chain():
     { "chain": [{"timestamp":..., "transactions": [...]}, ...], "length": <int> }
     """
     return jsonify(bc.to_dict()), 200
+
+# --- New: Lightweight chain summary endpoint ---
+@blockchain_bp.route('/chain/summary', methods=['GET'])
+def chain_summary():
+    """
+    Return only the last block hash and chain length for efficient sync.
+    { "last_hash": <str>, "length": <int> }
+    """
+    if not bc.chain:
+        return jsonify({"last_hash": None, "length": 0}), 200
+    last_block = bc.chain[-1]
+    last_hash = bc.hash(last_block)
+    return jsonify({"last_hash": last_hash, "length": len(bc.chain)}), 200
     # chain_summary = [{
     #     "timestamp": block["timestamp"],
     #     "transactions": block["transactions"]
@@ -405,9 +447,10 @@ def mine():
     3) new_block(proof) → apply_contracts(block) → broadcast.  
     4) Return the newly mined block.
     """
-    # Step 1: Sync with peers
+    # Step 1: Sync with master peers first, then regular peers if needed
     longest_chain = bc.chain
-    for peer in bc.get_node_addresses():
+    sync_sources = list(bc.master_peers) if bc.master_peers else bc.get_node_addresses()
+    for peer in sync_sources:
         try:
             r = requests.get(f"http://{peer}/chain", timeout=3)
             if r.status_code == 200:
@@ -425,10 +468,19 @@ def mine():
     proof = bc.proof_of_work(last_proof)
 
     # Step 3: Forge new block
-    new_block = bc.new_block(proof, mined_by=f"node_{PORT}")
+    # Use the local node address for mined_by (PORT may not be defined here)
+    mined_by = f"node_{bc.local_node}" if bc.local_node else "node_unknown"
+    new_block = bc.new_block(proof, mined_by=mined_by)
 
-    # Step 4: Broadcast to all peers
-    for peer in bc.get_node_addresses():
+    # Step 4: Broadcast: first to master peers, then to other peers
+    master_peers = list(bc.master_peers)
+    other_peers = [p for p in bc.get_node_addresses() if p not in master_peers]
+    for peer in master_peers:
+        try:
+            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+        except:
+            pass
+    for peer in other_peers:
         try:
             requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
         except:
@@ -450,13 +502,17 @@ def block_propagation_metrics_endpoint():
         "startTime_avg": avg(bc.startTime),
         "chainSyncedTime_avg": avg(bc.chainSyncedTime),
         "blockMinedTime_avg": avg(bc.blockMinedTime),
-        "endTime_avg": avg(bc.endTime)
+        "blockPropagationTime_avg": avg(bc.blockPropagationTime),
+        "dataReceivedAtProviderTime_avg": (avg(bc.dataReceivedAtProviderTime)) * 1000,
+        "endTime_avg": (avg(bc.endTime)) * 1000
     }
 
     # Reset the arrays after retrieving the values
     bc.startTime.clear()
     bc.chainSyncedTime.clear()
     bc.blockMinedTime.clear()
+    bc.blockPropagationTime.clear()
+    bc.dataReceivedAtProviderTime.clear()
     bc.endTime.clear()
 
     return jsonify(metrics), 200
@@ -555,7 +611,7 @@ class BlockchainNode:
     def peer_gossip_loop(self):
         """
         Every 30 seconds, fetch each known peer's /nodes list (which includes role info)
-        and merge them into bc.nodes + bc.peers_roles. Remove unreachable peers.
+        and merge them into bc.nodes + bc.peers_roles. Remove unreachable peers from all sets.
         """
         while True:
             current_peers = bc.get_node_addresses().copy()
@@ -571,13 +627,15 @@ class BlockchainNode:
                                 bc.register_node(addr, is_local=False)
                                 bc.set_peer_role(addr, role)
                     else:
-                        # Non-200 → remove peer
+                        # Non-200 → remove peer from all sets
                         bc.nodes.discard(peer)
                         bc.peers_roles.pop(peer, None)
+                        bc.master_peers.discard(peer)
                         print(f"Removed unreachable peer: {peer}")
                 except requests.exceptions.RequestException:
                     bc.nodes.discard(peer)
                     bc.peers_roles.pop(peer, None)
+                    bc.master_peers.discard(peer)
                     print(f"Removed unreachable peer: {peer}")
             sleep(30)
 
