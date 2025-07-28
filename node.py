@@ -107,7 +107,8 @@ class Blockchain:
             if node_addr == self.local_node:
                 continue
             try:
-                r = requests.get(f"http://{node_addr}/chain", timeout=5)
+                host_port = get_host_port(node_addr)
+                r = requests.get(f"http://{host_port}/chain", timeout=5)
                 if r.status_code == 200:
                     data = r.json()
                     length = data.get('length')
@@ -421,7 +422,8 @@ def sync_chain():
 
     for peer in bc.get_node_addresses():
         try:
-            r = requests.get(f"http://{peer}/chain", timeout=3)
+            host_port = get_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 data = r.json()
                 length = data.get('length')
@@ -452,7 +454,8 @@ def mine():
     sync_sources = list(bc.master_peers) if bc.master_peers else bc.get_node_addresses()
     for peer in sync_sources:
         try:
-            r = requests.get(f"http://{peer}/chain", timeout=3)
+            host_port = get_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 data = r.json()
                 length = data.get('length')
@@ -477,12 +480,14 @@ def mine():
     other_peers = [p for p in bc.get_node_addresses() if p not in master_peers]
     for peer in master_peers:
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
         except:
             pass
     for peer in other_peers:
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
         except:
             pass
 
@@ -530,29 +535,90 @@ class BlockchainNode:
 
         # Step 1: Check if someone is listening on port 5002
         requested_port = desired_port
-        local_hostname = os.environ.get("HOSTNAME", socket.gethostname())
-        requested_address = f"{local_hostname}:{requested_port}"
+        # Use MY_SERVICE_NAME env var if set, else fallback to BOOTSTRAP_HOST, else default
+        local_hostname = os.environ.get("MY_SERVICE_NAME")
+        if not local_hostname:
+            local_hostname = os.environ.get("BOOTSTRAP_HOST", "localhost")
+            # Fallback for legacy envs
+            if "ROLE" in os.environ:
+                role = os.environ["ROLE"].lower()
+                if role == "master":
+                    local_hostname = "master_service"
+                elif role == "requester":
+                    local_hostname = "requester_service"
+                elif role == "provider":
+                    local_hostname = "provider_service"
+        # Add container hostname/ID for uniqueness
+        container_id = socket.gethostname()
+        requested_address = f"{local_hostname}:{requested_port}:{container_id}"
 
-        try:
-            r = requests.get(f"http://{BOOTSTRAP_ADDRESS}/chain", timeout=2)
-            node_exists_at_5002 = (r.status_code == 200)
-        except requests.exceptions.RequestException:
-            node_exists_at_5002 = False
+        import time
+        max_retries = 30
+        node_exists_at_5002 = False
+        # Only wait for master if our role is NOT master
+        if role != "master":
+            for attempt in range(max_retries):
+                try:
+                    r = requests.get(f"http://{BOOTSTRAP_ADDRESS}/chain", timeout=2)
+                    if r.status_code == 200:
+                        node_exists_at_5002 = True
+                        break
+                except requests.exceptions.RequestException:
+                    pass
+                print(f"[BOOTSTRAP WAIT] Waiting for master at {BOOTSTRAP_ADDRESS}... ({attempt+1}/{max_retries})", flush=True)
+                time.sleep(2)
 
         PORT = requested_port
-        MY_ADDRESS = f"{local_hostname}:{PORT}"
-        if node_exists_at_5002:
-            IS_BOOTSTRAP = False
-            print(f"Detected existing node on 5002. Binding to port {PORT} and registering.")
+        MY_ADDRESS = requested_address
+        IS_BOOTSTRAP = False
+        longest_chain = None
+        # New logic: If this is a master node, try to find any existing master chains
+        if role == "master":
+            # Try to discover all master nodes via DNS (service discovery)
+            # socket and os are already imported at the top
+            # Try to resolve all A records for the master service name
+            master_service_name = os.environ.get("MY_SERVICE_NAME", "master_service")
+            try:
+                # This will return all IPs for the service (all replicas)
+                master_ips = socket.gethostbyname_ex(master_service_name)[2]
+            except Exception:
+                master_ips = []
+            found_chain = False
+            max_length = 0
+            for ip in master_ips:
+                if ip == socket.gethostbyname(socket.gethostname()):
+                    continue  # skip self
+                try:
+                    url = f"http://{ip}:{requested_port}/chain"
+                    r = requests.get(url, timeout=2)
+                    if r.status_code == 200:
+                        data = r.json()
+                        chain = data.get('chain')
+                        if chain and len(chain) > max_length:
+                            longest_chain = chain
+                            max_length = len(chain)
+                            found_chain = True
+                except Exception:
+                    continue
+            if found_chain:
+                print(f"[MASTER BOOTSTRAP] Found existing master chain of length {max_length}. Joining it.")
+            else:
+                print(f"[MASTER BOOTSTRAP] No existing master chain found. Bootstrapping new chain.")
+                IS_BOOTSTRAP = True
         else:
-            IS_BOOTSTRAP = True
-            print(f"No node on 5002. Becoming the first node on {MY_ADDRESS}")
+            if node_exists_at_5002:
+                print(f"Detected existing node on 5002. Binding to port {PORT} and registering.")
+            else:
+                IS_BOOTSTRAP = True
+                print(f"No node on 5002. Becoming the first node on {MY_ADDRESS}")
 
         # Step 2: Instantiate our Blockchain, register ourselves, set role
         bc = Blockchain()
         bc.register_node(MY_ADDRESS, is_local=True)
         bc.set_peer_role(MY_ADDRESS, role)
         bc.bootstrap_node = BOOTSTRAP_HOST
+        if longest_chain:
+            bc.chain = longest_chain
 
         self.IS_BOOTSTRAP = IS_BOOTSTRAP
         self.MY_ADDRESS = MY_ADDRESS
@@ -612,13 +678,27 @@ class BlockchainNode:
         """
         Every 30 seconds, fetch each known peer's /nodes list (which includes role info)
         and merge them into bc.nodes + bc.peers_roles. Remove unreachable peers from all sets.
+        If no peers are present, attempt to re-register with the master (bootstrap) node.
         """
+        self.peer_failures = getattr(self, 'peer_failures', {})
         while True:
             current_peers = bc.get_node_addresses().copy()
+            # If we have no peers, try to re-register with the master/bootstrap node
+            if not current_peers:
+                print("[GOSSIP] No peers found, attempting to re-register with bootstrap/master node at", BOOTSTRAP_ADDRESS, flush=True)
+                try:
+                    self.register_with_peer(BOOTSTRAP_ADDRESS)
+                    print("[GOSSIP] Re-registration attempt complete. Current peers:", bc.get_node_addresses(), flush=True)
+                except Exception as e:
+                    print(f"[GOSSIP] Failed to re-register with master: {e}", flush=True)
+                current_peers = bc.get_node_addresses().copy()
             for peer in current_peers:
                 try:
-                    r = requests.get(f"http://{peer}/nodes", timeout=3)
+                    host_port = get_host_port(peer)
+                    r = requests.get(f"http://{host_port}/nodes", timeout=3)
                     if r.status_code == 200:
+                        # Reset failure count
+                        self.peer_failures[peer] = 0
                         their_list = r.json().get("peers", [])
                         for pinfo in their_list:
                             addr = pinfo.get("address")
@@ -627,18 +707,32 @@ class BlockchainNode:
                                 bc.register_node(addr, is_local=False)
                                 bc.set_peer_role(addr, role)
                     else:
-                        # Non-200 → remove peer from all sets
+                        self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
+
+                    if self.peer_failures[peer] >= 3:
                         bc.nodes.discard(peer)
                         bc.peers_roles.pop(peer, None)
                         bc.master_peers.discard(peer)
-                        print(f"Removed unreachable peer: {peer}")
+                        print(f"Removed unreachable peer after 3 failures: {peer}")
                 except requests.exceptions.RequestException:
-                    bc.nodes.discard(peer)
-                    bc.peers_roles.pop(peer, None)
-                    bc.master_peers.discard(peer)
-                    print(f"Removed unreachable peer: {peer}")
+                    self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
+
+                    if self.peer_failures[peer] >= 3:
+                        bc.nodes.discard(peer)
+                        bc.peers_roles.pop(peer, None)
+                        bc.master_peers.discard(peer)
+                        print(f"Removed unreachable peer after 3 failures: {peer}")
+                        # Enhanced: Immediately try to re-register with bootstrap/master node
+                        try:
+                            self.register_with_peer(BOOTSTRAP_ADDRESS)
+                            print(f"[GOSSIP] Peer removal triggered re-registration with master at {BOOTSTRAP_ADDRESS}")
+                        except Exception as e:
+                            print(f"[GOSSIP] Re-registration with master failed: {e}")
             sleep(30)
 
+def get_host_port(peer):
+    # peer is like "provider_service:5004:0bd02b238772"
+    return ':'.join(peer.split(':')[:2])  # "provider_service:5004"
 
 # ─── If someone runs node.py directly, bail out ────────────────────────────────
 if __name__ == '__main__':

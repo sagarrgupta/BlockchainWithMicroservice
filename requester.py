@@ -6,6 +6,7 @@ from flask import Flask, jsonify, abort
 import node as node
 from node import BlockchainNode
 import time
+from node import get_host_port
 
 app = Flask(__name__)
 
@@ -43,7 +44,8 @@ def request_city(city_id):
         provider_addr = providers[0]["address"]
         # (2) Call provider directly (or via intermediary if needed)
         intermediary_addr = "127.0.0.1:5004"
-        resp = requests.get(f"http://{provider_addr}/city/{city_id}", timeout=5)
+        host_port = get_host_port(provider_addr)
+        resp = requests.get(f"http://{host_port}/city/{city_id}", timeout=5)
         if resp.status_code == 404:
             return jsonify({"error": "city not found"}), 404
         if resp.status_code != 200:
@@ -116,14 +118,16 @@ def mine_and_broadcast_block(blockTransactions):
     # Send to master peers first
     for peer in master_peers:
         try:
-            resp = requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            resp = requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
             peer_results.append((peer, resp.status_code))
         except Exception as e:
             peer_results.append((peer, f"error: {e}"))
     # Then send to other peers
     for peer in other_peers:
         try:
-            resp = requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            resp = requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
             peer_results.append((peer, resp.status_code))
         except Exception as e:
             peer_results.append((peer, f"error: {e}"))
@@ -221,20 +225,52 @@ def update_resource_allocation(city_id, risk_level):
 
     # (3) Broadcast the new block to all peers
     peers = node.bc.get_node_addresses()
+    master_peers = list(node.bc.master_peers) if hasattr(node.bc, 'master_peers') and node.bc.master_peers else []
     provider_peers = []
-    other_peers    = []
+    other_peers = []
     for p in peers:
-        if node.bc.peers_roles.get(p) == 'provider':
+        if p in master_peers:
+            continue  # handled separately
+        elif node.bc.peers_roles.get(p) == 'provider':
             provider_peers.append(p)
         else:
             other_peers.append(p)
 
-    # 3. re-assemble: provider(s) first, then the rest
-    updatedPeers = provider_peers + other_peers
-    for peer in updatedPeers:
+    # 1. Try to broadcast to master peers first, but as soon as one succeeds, proceed to providers/others
+    failed_masters = []
+    for master in master_peers:
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': block}, timeout=3)
-        except:
+            host_port = get_host_port(master)
+            resp = requests.post(f"http://{host_port}/receive_block", json={'block': block}, timeout=3)
+            if resp.status_code == 200:
+                break  # proceed to providers/others immediately
+            else:
+                failed_masters.append(master)
+        except Exception:
+            failed_masters.append(master)
+
+    # 2. Broadcast to provider peers
+    for peer in provider_peers:
+        try:
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': block}, timeout=3)
+        except Exception:
+            continue
+
+    # 3. Broadcast to other peers
+    for peer in other_peers:
+        try:
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': block}, timeout=3)
+        except Exception:
+            continue
+
+    # 4. Try remaining master peers (those not contacted successfully)
+    for master in failed_masters:
+        try:
+            host_port = get_host_port(master)
+            requests.post(f"http://{host_port}/receive_block", json={'block': block}, timeout=3)
+        except Exception:
             continue
 
     node.bc.blockPropagationTime.append(time.time() * 1000)

@@ -69,17 +69,20 @@ curl -X POST http://localhost:5003/update_resource/1/high
 docker compose down
 
 # To run the bootstrap node
-docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl http://localhost:5003/request/1
-docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl -X POST http://localhost:5003/update_resource/1/high
+docker exec -it 72bfc00ce90c50705155ef107544b311b084cc02f6b62186d6a3dfe3c8697d7e curl http://localhost:5003/request/1
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl -X POST http://localhost:5003/update_resource/1/high
 
 # To get the block propagation metrics
-docker exec -it 34633eeef25bb321a5b41a902f7b10ed2d4977f2f447fb663866933dca30ab37 curl http://localhost:5003/block_propagation_metrics
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/block_propagation_metrics
 curl http://localhost:5004/block_propagation_metrics
 
-docker exec -it dbb2f1c89d7ef13833ba491f9735bf813898fcea098d9892e29ffb16dfe8e99d curl http://localhost:5003/chain
-docker exec -it 0c4a98e347db13f59fe365ff003397b639b52cd5a7676f59c569f39d23440658 curl http://localhost:5003/chain
-docker exec -it 7f8a2d094bda27cd07887b37b732914fe01ffe693a71713aece35ee139a484fe curl http://localhost:5002/chain
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5002/chain
 curl http://localhost:5004/chain
+
+# To check docker version
+docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 which docker
 
 # time it takes
 # without blockchain between 2 nodes: 7.05 ms
@@ -127,3 +130,29 @@ source venv/bin/activate
 python intermediary.py 5011 127.0.0.1:5003
 
 """
+
+docker swarm leave --force
+
+docker swarm init
+
+docker build -t blockchainwithmicroservice_db_setup_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_master_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_requester_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_provider_service -f Dockerfile .
+
+docker stack deploy -c docker-compose.yml blockchain_stack
+
+docker service scale blockchain_stack_master_service=3
+
+curl http://master_service:5002/nodes
+curl http://requester_service:5003/nodes
+curl http://provider_service:5004/nodes
+
+curl http://master_service:5002/chain
+curl http://requester_service:5003/chain
+curl http://provider_service:5004/chain
+
+curl http://requester_service:5003/request/1
+
+docker service scale blockchain_stack_master_service=3
+docker service scale blockchain_stack_requester_service=3

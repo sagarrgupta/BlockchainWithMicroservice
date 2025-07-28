@@ -8,6 +8,7 @@ import node
 from node import BlockchainNode
 import os
 import time
+from node import get_host_port
 
 app = Flask(__name__)
 
@@ -120,7 +121,8 @@ def update_resource(city_id, risk_level):
     # Broadcast new block to all peers
     for peer in node.bc.get_node_addresses():
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
         except:
             pass
 

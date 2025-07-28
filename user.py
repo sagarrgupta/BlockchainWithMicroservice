@@ -5,6 +5,7 @@ import requests
 from flask import Flask, jsonify, request, abort
 import node
 from node import BlockchainNode
+from node import get_host_port
 
 app = Flask(__name__)
 
@@ -39,7 +40,8 @@ def add_user():
     longest_chain = node.bc.chain
     for peer in node.bc.get_node_addresses():
         try:
-            r = requests.get(f"http://{peer}/chain", timeout=3)
+            host_port = get_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 d = r.json()
                 length = d.get('length')
@@ -70,7 +72,8 @@ def add_user():
     # (4) Broadcast to all peers
     for peer in node.bc.get_node_addresses():
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
         except:
             pass
 
@@ -111,7 +114,8 @@ def transfer():
     longest_chain = node.bc.chain
     for peer in node.bc.get_node_addresses():
         try:
-            r = requests.get(f"http://{peer}/chain", timeout=3)
+            host_port = get_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 d = r.json()
                 length = d.get('length')
@@ -142,7 +146,8 @@ def transfer():
     # (4) Broadcast to peers
     for peer in node.bc.get_node_addresses():
         try:
-            requests.post(f"http://{peer}/receive_block", json={'block': new_block}, timeout=2)
+            host_port = get_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
         except:
             pass
 

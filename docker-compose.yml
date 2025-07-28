@@ -1,88 +1,130 @@
 services:
   # ─── 0) db_setup_service (runs db_setup.py once) ──────────────────────────────
   db_setup_service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: blockchainwithmicroservice_db_setup_service
     command: ["db_setup.py"]
     networks:
       - bcnet
     volumes:
       - db_data:/data
-    # Remove container after completion
-    restart: "no"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
 
   # ─── 1) requester_service (bootstrap) ─────────────────────────────────────────
   master_service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: blockchainwithmicroservice_master_service
     environment:
       - ROLE=master
       - PORT=5002
       - BOOTSTRAP_HOST=master_service
       - BOOTSTRAP_PORT=5002
-    command: ["master.py", "5002"]
+      - MY_SERVICE_NAME=master_service  # for master
+      - PYTHONUNBUFFERED=1
+    command: ["-u", "master.py", "5002"]
     networks:
       - bcnet
-    depends_on:
-      db_setup_service:
-        condition: service_completed_successfully
     volumes:
       - db_data:/data
     healthcheck:
-      start_period: 2s
-      retries: 1
       test: ["CMD", "curl", "-f", "http://localhost:5002/chain"]
-      timeout: 2s
-      interval: 120s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
 
   # ─── 2) requester_service ─────────────────────────────────────────────────
   requester_service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: blockchainwithmicroservice_requester_service
     environment:
       - ROLE=requester
       - PORT=5003
       - BOOTSTRAP_HOST=master_service
       - BOOTSTRAP_PORT=5002
+      - MY_SERVICE_NAME=requester_service  # for requester
+      - PYTHONUNBUFFERED=1
     command: ["-u", "requester.py", "5003"]
     networks:
       - bcnet
-    depends_on:
-      master_service:
-        condition: service_healthy
-      db_setup_service:
-        condition: service_completed_successfully
     volumes:
       - db_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5003/chain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+    depends_on:
+      - master_service
 
   provider_service:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: blockchainwithmicroservice_provider_service
     environment:
       - ROLE=provider
       - PORT=5004
       - BOOTSTRAP_HOST=master_service
       - BOOTSTRAP_PORT=5002
+      - MY_SERVICE_NAME=provider_service  # for provider
+      - PYTHONUNBUFFERED=1
     command: ["-u", "provider.py", "5004"]
     ports:
       - "5004:5004"
     networks:
       - bcnet
-    depends_on:
-      master_service:
-        condition: service_healthy
-      db_setup_service:
-        condition: service_completed_successfully
     volumes:
       - db_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/chain"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        parallelism: 1
+        delay: 10s
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: "512M"
+        reservations:
+          cpus: "0.25"
+          memory: "256M"
+    depends_on:
+      - master_service
 
 networks:
   bcnet:
-    driver: bridge
+    driver: overlay
 
 volumes:
   db_data:
