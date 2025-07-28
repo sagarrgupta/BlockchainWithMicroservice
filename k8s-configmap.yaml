@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blockchain-config
+  namespace: blockchain-microservices
+data:
+  # Master service configuration
+  MASTER_ROLE: "master"
+  MASTER_PORT: "5002"
+  MASTER_BOOTSTRAP_HOST: "master-service"
+  MASTER_BOOTSTRAP_PORT: "5002"
+  MASTER_SERVICE_NAME: "master-service"
+  
+  # Requester service configuration
+  REQUESTER_ROLE: "requester"
+  REQUESTER_PORT: "5003"
+  REQUESTER_BOOTSTRAP_HOST: "master-service"
+  REQUESTER_BOOTSTRAP_PORT: "5002"
+  REQUESTER_SERVICE_NAME: "requester-service"
+  
+  # Provider service configuration
+  PROVIDER_ROLE: "provider"
+  PROVIDER_PORT: "5004"
+  PROVIDER_BOOTSTRAP_HOST: "master-service"
+  PROVIDER_BOOTSTRAP_PORT: "5002"
+  PROVIDER_SERVICE_NAME: "provider-service"
+  
+  # Common configuration
+  PYTHONUNBUFFERED: "1"
+  DATABASE_PATH: "/data/disaster_resources.db" 

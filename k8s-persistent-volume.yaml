@@ -1,0 +1,10 @@
+# For GKE Autopilot, we'll use emptyDir volumes in the deployment files
+# This is simpler for development and doesn't require external storage setup
+# The database will be recreated each time pods restart, but that's fine for testing
+
+# Note: For production, you would need to:
+# 1. Create a Cloud Filestore instance
+# 2. Use the NFS server IP in the PersistentVolume
+# 3. Or use Cloud SQL for the database
+
+# This file is kept for reference but not used in Autopilot 

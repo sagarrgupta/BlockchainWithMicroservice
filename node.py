@@ -285,9 +285,14 @@ def list_nodes():
     """
     Return a list of peers this node currently knows about,
     each entry: { "address": "<host:port>", "role": "<role>" }.
+    Only include peers that are still in bc.nodes (i.e., live peers).
     """
     peers_info = []
     for addr in bc.get_node_addresses():
+        if addr == bc.local_node:
+            continue  # Exclude self, just in case
+        if addr not in bc.nodes:
+            continue  # Exclude stale peers
         role = bc.peers_roles.get(addr, "unknown")
         peers_info.append({"address": addr, "role": role})
     return jsonify({'peers': peers_info}), 200
@@ -376,7 +381,29 @@ def receive_block():
                         pass
             return jsonify({"message": "Block accepted"}), 201
         else:
-            return jsonify({"error": "Invalid block"}), 400
+            # If block cannot be appended, try to sync with all master peers and retry
+            print("[RECEIVE_BLOCK] Block could not be appended, attempting to sync with master peers.")
+            longest_chain = bc.chain
+            for master_peer in bc.master_peers:
+                try:
+                    r = requests.get(f"http://{master_peer}/chain", timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        length = data.get('length')
+                        chain = data.get('chain')
+                        if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                            longest_chain = chain
+                except Exception as e:
+                    print(f"[RECEIVE_BLOCK] Error syncing with master peer {master_peer}: {e}")
+            bc.chain = longest_chain.copy()
+            # Try to append the block again
+            last = bc.last_block
+            if block['index'] == last['index'] + 1 and block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
+                bc.chain.append(block)
+                bc.apply_contracts(block)
+                return jsonify({"message": "Block accepted after sync"}), 201
+            else:
+                return jsonify({"error": "Invalid block, even after sync"}), 400
     elif block['index'] > last['index'] + 1:
         return jsonify({"error": "Block index too high, please sync"}), 409
     else:
@@ -522,6 +549,19 @@ def block_propagation_metrics_endpoint():
 
     return jsonify(metrics), 200
 
+@blockchain_bp.route('/master_peers', methods=['GET'])
+def list_master_peers():
+    """
+    Return a list of current master peers this node knows about.
+    Each entry: { "address": "<host:port>", "role": "master" }
+    Only include master peers that are still in bc.nodes (i.e., live peers).
+    """
+    master_peers_info = []
+    for addr in bc.master_peers:
+        if addr in bc.nodes:
+            master_peers_info.append({"address": addr, "role": "master"})
+    return jsonify({'master_peers': master_peers_info}), 200
+
 # ─── BlockchainNode Wrapper ─────────────────────────────────────────────────────
 class BlockchainNode:
     """
@@ -646,6 +686,10 @@ class BlockchainNode:
 
         threading.Thread(target=self.peer_gossip_loop, daemon=True).start()
 
+        # Automatic chain sync for masters only
+        if self.role == "master":
+            threading.Thread(target=self.periodic_chain_sync, daemon=True).start()
+
         # Expose app and port for others to read
         self.app = app
 
@@ -704,8 +748,15 @@ class BlockchainNode:
                             addr = pinfo.get("address")
                             role = pinfo.get("role")
                             if addr and role:
-                                bc.register_node(addr, is_local=False)
-                                bc.set_peer_role(addr, role)
+                                # Only add if reachable
+                                try:
+                                    host_port2 = get_host_port(addr)
+                                    r2 = requests.get(f"http://{host_port2}/chain", timeout=2)
+                                    if r2.status_code == 200:
+                                        bc.register_node(addr, is_local=False)
+                                        bc.set_peer_role(addr, role)
+                                except Exception:
+                                    continue
                     else:
                         self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
 
@@ -714,6 +765,8 @@ class BlockchainNode:
                         bc.peers_roles.pop(peer, None)
                         bc.master_peers.discard(peer)
                         print(f"Removed unreachable peer after 3 failures: {peer}")
+                        print(f"[DEBUG] After removal, nodes: {bc.nodes}")
+                        print(f"[DEBUG] After removal, master_peers: {bc.master_peers}")
                 except requests.exceptions.RequestException:
                     self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
 
@@ -722,17 +775,78 @@ class BlockchainNode:
                         bc.peers_roles.pop(peer, None)
                         bc.master_peers.discard(peer)
                         print(f"Removed unreachable peer after 3 failures: {peer}")
+                        print(f"[DEBUG] After removal, nodes: {bc.nodes}")
+                        print(f"[DEBUG] After removal, master_peers: {bc.master_peers}")
                         # Enhanced: Immediately try to re-register with bootstrap/master node
                         try:
                             self.register_with_peer(BOOTSTRAP_ADDRESS)
                             print(f"[GOSSIP] Peer removal triggered re-registration with master at {BOOTSTRAP_ADDRESS}")
                         except Exception as e:
                             print(f"[GOSSIP] Re-registration with master failed: {e}")
+            print(f"[DEBUG] End of gossip cycle, nodes: {bc.nodes}")
+            print(f"[DEBUG] End of gossip cycle, master_peers: {bc.master_peers}")
             sleep(30)
+
+    def periodic_chain_sync(self):
+        import time
+        while True:
+            try:
+                # Call the /sync endpoint to resolve conflicts
+                requests.get(f"http://localhost:{self.PORT}/sync", timeout=5)
+            except Exception as e:
+                print(f"[SYNC] Error during periodic sync: {e}")
+            time.sleep(30)
 
 def get_host_port(peer):
     # peer is like "provider_service:5004:0bd02b238772"
-    return ':'.join(peer.split(':')[:2])  # "provider_service:5004"
+    # In Kubernetes, we need to handle both Docker Swarm and Kubernetes service names
+    if ':' in peer:
+        parts = peer.split(':')
+        if len(parts) >= 2:
+            # Extract service name and port, ignore container ID for network requests
+            service_name = parts[0]
+            port = parts[1]
+            
+            # Handle Kubernetes service names
+            if service_name.endswith('-service'):
+                # This is a Kubernetes service name
+                return f"{service_name}.blockchain-microservices.svc.cluster.local:{port}"
+            else:
+                # This is a Docker Swarm service name
+                return f"{service_name}:{port}"
+    
+    # Fallback to original peer address
+    return peer
+
+def get_kubernetes_service_name(service_name):
+    """Convert service name to Kubernetes DNS format"""
+    if service_name.endswith('-service'):
+        return f"{service_name}.blockchain-microservices.svc.cluster.local"
+    return service_name
+
+def discover_kubernetes_peers():
+    """Discover peers using Kubernetes DNS service discovery"""
+    import socket
+    import os
+    
+    # Get current namespace
+    namespace = os.environ.get('NAMESPACE', 'blockchain-microservices')
+    
+    # List of services to discover
+    services = ['master-service', 'requester-service', 'provider-service']
+    discovered_peers = []
+    
+    for service in services:
+        try:
+            # Try to resolve the service DNS
+            service_dns = f"{service}.{namespace}.svc.cluster.local"
+            socket.gethostbyname(service_dns)
+            discovered_peers.append(service_dns)
+        except socket.gaierror:
+            # Service not found, skip
+            continue
+    
+    return discovered_peers
 
 # ─── If someone runs node.py directly, bail out ────────────────────────────────
 if __name__ == '__main__':

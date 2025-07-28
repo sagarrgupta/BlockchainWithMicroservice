@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-deployment
+  namespace: blockchain-microservices
+  labels:
+    app: provider-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: provider-service
+  template:
+    metadata:
+      labels:
+        app: provider-service
+    spec:
+      containers:
+      - name: provider-service
+        image: gcr.io/blockchain-with-microservice/blockchain-provider:latest
+        ports:
+        - containerPort: 5004
+        env:
+        - name: ROLE
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_ROLE
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_PORT
+        - name: BOOTSTRAP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_BOOTSTRAP_HOST
+        - name: BOOTSTRAP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_BOOTSTRAP_PORT
+        - name: MY_SERVICE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_SERVICE_NAME
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PYTHONUNBUFFERED
+        command: ["python", "-u", "provider.py", "5004"]
+        volumeMounts:
+        - name: db-storage
+          mountPath: /data
+        livenessProbe:
+          httpGet:
+            path: /chain
+            port: 5004
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /chain
+            port: 5004
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: filestore-pvc 
