@@ -6,6 +6,8 @@ from flask import Flask, jsonify, request, abort
 import node
 from node import BlockchainNode
 from node import get_host_port
+import time
+from node import get_jwt_token_for_node
 
 app = Flask(__name__)
 
@@ -70,10 +72,13 @@ def add_user():
     new_block = node.bc.new_block(proof, mined_by=f"user_service_{contract_node.MY_ADDRESS}")
 
     # (4) Broadcast to all peers
+    jwt_token = get_jwt_token_for_node()
+    headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+    
     for peer in node.bc.get_node_addresses():
         try:
             host_port = get_host_port(peer)
-            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
         except:
             pass
 
@@ -144,10 +149,13 @@ def transfer():
     new_block = node.bc.new_block(proof, mined_by=f"user_service_{contract_node.MY_ADDRESS}")
 
     # (4) Broadcast to peers
+    jwt_token = get_jwt_token_for_node()
+    headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+    
     for peer in node.bc.get_node_addresses():
         try:
             host_port = get_host_port(peer)
-            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, timeout=2)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
         except:
             pass
 

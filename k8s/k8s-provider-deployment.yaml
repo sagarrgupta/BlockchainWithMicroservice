@@ -1,64 +1,74 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: master-deployment
+  name: provider-deployment
   namespace: blockchain-microservices
   labels:
-    app: master-service
+    app: provider-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: master-service
+      app: provider-service
   template:
     metadata:
       labels:
-        app: master-service
+        app: provider-service
     spec:
       containers:
-      - name: master-service
-        image: gcr.io/blockchain-with-microservice/blockchain-master:latest
+      - name: provider-service
+        image: gcr.io/blockchain-with-microservice/blockchain-provider:latest
         ports:
-        - containerPort: 5002
+        - containerPort: 5004
         env:
+        - name: NODE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: node-api-keys
+              key: api-key-1
+        - name: JWT_ISSUER_URL
+          value: "http://jwt-issuer-service:8443"
         - name: ROLE
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
-              key: MASTER_ROLE
+              key: PROVIDER_ROLE
         - name: PORT
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
-              key: MASTER_PORT
+              key: PROVIDER_PORT
         - name: BOOTSTRAP_HOST
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
-              key: MASTER_BOOTSTRAP_HOST
+              key: PROVIDER_BOOTSTRAP_HOST
         - name: BOOTSTRAP_PORT
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
-              key: MASTER_BOOTSTRAP_PORT
+              key: PROVIDER_BOOTSTRAP_PORT
         - name: MY_SERVICE_NAME
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
-              key: MASTER_SERVICE_NAME
+              key: PROVIDER_SERVICE_NAME
         - name: PYTHONUNBUFFERED
           valueFrom:
             configMapKeyRef:
               name: blockchain-config
               key: PYTHONUNBUFFERED
-        command: ["python", "-u", "master.py", "5002"]
+        command: ["python", "-u", "provider.py", "5004"]
         volumeMounts:
         - name: db-storage
           mountPath: /data
+        - name: jwt-public-key
+          mountPath: /secrets
+          readOnly: true
         livenessProbe:
           httpGet:
             path: /chain
-            port: 5002
+            port: 5004
           initialDelaySeconds: 30
           periodSeconds: 30
           timeoutSeconds: 10
@@ -66,7 +76,7 @@ spec:
         readinessProbe:
           httpGet:
             path: /chain
-            port: 5002
+            port: 5004
           initialDelaySeconds: 10
           periodSeconds: 5
           timeoutSeconds: 5
@@ -80,4 +90,12 @@ spec:
             memory: "128Mi"
       volumes:
       - name: db-storage
-        emptyDir: {} 
+        persistentVolumeClaim:
+          claimName: filestore-pvc
+      - name: jwt-public-key
+        secret:
+          secretName: jwt-issuer-key
+          items:
+          - key: public.pem
+            path: public.pem
+            mode: 0444 

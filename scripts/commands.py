@@ -135,10 +135,10 @@ docker swarm leave --force
 
 docker swarm init
 
-docker build -t blockchainwithmicroservice_db_setup_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_master_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_requester_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_provider_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_db_setup_service -f src/Dockerfile src/
+docker build -t blockchainwithmicroservice_master_service -f src/Dockerfile src/
+docker build -t blockchainwithmicroservice_requester_service -f src/Dockerfile src/
+docker build -t blockchainwithmicroservice_provider_service -f src/Dockerfile src/
 
 docker stack deploy -c docker-compose.yml blockchain_stack
 
@@ -187,9 +187,9 @@ kubectl describe nodes
 gcloud auth configure-docker
 
 # Step 6: Build Docker images with correct platform for Kubernetes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest .
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest .
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest .
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest src/
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest src/
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest src/
 
 # Step 7: Push images to Google Container Registry
 docker push gcr.io/blockchain-with-microservice/blockchain-master:latest
@@ -240,10 +240,11 @@ curl http://localhost:5003/request/1
 # =============================================================================
 
 # Step 1: Create HPA for provider deployment
-kubectl apply -f k8s-hpa.yaml
+kubectl apply -f k8s/k8s-hpa.yaml
 
 # Step 2: Create HPA for requester deployment
-kubectl apply -f k8s-requester-hpa.yaml
+kubectl apply -f k8s/k8s-requester-hpa.yaml
+kubectl apply -f k8s/k8s-provider-hpa.yaml
 
 # Step 3: Check HPA status
 kubectl get hpa -n blockchain-microservices -o wide
@@ -336,7 +337,7 @@ kubectl get all -n blockchain-microservices
 # Scale services
 kubectl scale deployment master-deployment --replicas=1 -n blockchain-microservices
 kubectl scale deployment requester-deployment --replicas=1 -n blockchain-microservices
-kubectl scale deployment provider-deployment --replicas=5 -n blockchain-microservices
+kubectl scale deployment provider-deployment --replicas=1 -n blockchain-microservices
 
 kubectl scale deployment master-deployment --replicas=0 -n blockchain-microservices
 kubectl scale deployment requester-deployment --replicas=0 -n blockchain-microservices
@@ -488,7 +489,7 @@ for pod in $(kubectl get pods -n blockchain-microservices -l app=provider-servic
 done
 
 # To deploy the latest changes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest . && docker push gcr.io/blockchain-with-microservice/blockchain-master:latest && docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest && docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest && kubectl rollout restart deployment/master-deployment -n blockchain-microservices && kubectl rollout restart deployment/requester-deployment -n blockchain-microservices && kubectl rollout restart deployment/provider-deployment -n blockchain-microservices && kubectl get pods -n blockchain-microservices
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest src/ && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest src/ && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest src/ && docker push gcr.io/blockchain-with-microservice/blockchain-master:latest && docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest && docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest && kubectl rollout restart deployment/master-deployment -n blockchain-microservices && kubectl rollout restart deployment/requester-deployment -n blockchain-microservices && kubectl rollout restart deployment/provider-deployment -n blockchain-microservices && kubectl get pods -n blockchain-microservices
 
 kubectl logs -f deployment/provider-deployment -n blockchain-microservices
 
@@ -496,3 +497,5 @@ kubectl get pods -n blockchain-microservices -l app=provider-service
 kubectl logs -f provider-deployment-848444bbb6-79lph -n blockchain-microservices
 
 kubectl get hpa -n blockchain-microservices -o wide
+
+for i in {1..500}; do echo "Request $i:"; curl -w "Response Time: %{time_total}s\n" -s http://localhost:5003/request/1 | grep -E "(message|Response Time)"; sleep 0.05; done
