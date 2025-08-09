@@ -2,7 +2,7 @@ services:
   # ─── 0) db_setup_service (runs db_setup.py once) ──────────────────────────────
   db_setup_service:
     image: blockchainwithmicroservice_db_setup_service
-    command: ["db_setup.py"]
+    command: ["scripts/db_setup.py"]
     networks:
       - bcnet
     volumes:
@@ -22,7 +22,7 @@ services:
       - BOOTSTRAP_PORT=5002
       - MY_SERVICE_NAME=master_service  # for master
       - PYTHONUNBUFFERED=1
-    command: ["-u", "master.py", "5002"]
+    command: ["-u", "src/master.py", "5002"]
     networks:
       - bcnet
     volumes:
@@ -57,7 +57,7 @@ services:
       - BOOTSTRAP_PORT=5002
       - MY_SERVICE_NAME=requester_service  # for requester
       - PYTHONUNBUFFERED=1
-    command: ["-u", "requester.py", "5003"]
+    command: ["-u", "src/requester.py", "5003"]
     networks:
       - bcnet
     volumes:
@@ -93,7 +93,7 @@ services:
       - BOOTSTRAP_PORT=5002
       - MY_SERVICE_NAME=provider_service  # for provider
       - PYTHONUNBUFFERED=1
-    command: ["-u", "provider.py", "5004"]
+    command: ["-u", "src/provider.py", "5004"]
     ports:
       - "5004:5004"
     networks:

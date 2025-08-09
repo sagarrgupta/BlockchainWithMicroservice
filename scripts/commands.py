@@ -50,9 +50,9 @@ docker compose logs -f provider_service
 docker exec -it blockchainwithmicroservice-requester_service-1 sh
 
 # To send multiple requests
-curl http://provider_service:5003/user/1
-curl http://provider_service:5003/user/2
-curl http://provider_service:5003/user/3
+curl http://provider_service:5004/city/1
+curl http://provider_service:5004/city/2
+curl http://provider_service:5004/city/3
 
 # To run more services
 docker compose up --scale requester_service=3;
@@ -106,28 +106,28 @@ docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44
 """
 
 source venv/bin/activate
-python intermediary.py 5004 127.0.0.1:5005
+python src/intermediary.py 5004 127.0.0.1:5005
 
 source venv/bin/activate
-python intermediary.py 5005 127.0.0.1:5006
+python src/intermediary.py 5005 127.0.0.1:5006
 
 source venv/bin/activate
-python intermediary.py 5006 127.0.0.1:5007
+python src/intermediary.py 5006 127.0.0.1:5007
 
 source venv/bin/activate
-python intermediary.py 5007 127.0.0.1:5008
+python src/intermediary.py 5007 127.0.0.1:5008
 
 source venv/bin/activate
-python intermediary.py 5008 127.0.0.1:5009
+python src/intermediary.py 5008 127.0.0.1:5009
 
 source venv/bin/activate
-python intermediary.py 5009 127.0.0.1:5010
+python src/intermediary.py 5009 127.0.0.1:5010
 
 source venv/bin/activate
-python intermediary.py 5010 127.0.0.1:5011
+python src/intermediary.py 5010 127.0.0.1:5011
 
 source venv/bin/activate
-python intermediary.py 5011 127.0.0.1:5003
+python src/intermediary.py 5011 127.0.0.1:5003
 
 """
 
@@ -135,10 +135,10 @@ docker swarm leave --force
 
 docker swarm init
 
-docker build -t blockchainwithmicroservice_db_setup_service -f src/Dockerfile src/
-docker build -t blockchainwithmicroservice_master_service -f src/Dockerfile src/
-docker build -t blockchainwithmicroservice_requester_service -f src/Dockerfile src/
-docker build -t blockchainwithmicroservice_provider_service -f src/Dockerfile src/
+docker build -t blockchainwithmicroservice_db_setup_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_master_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_requester_service -f Dockerfile .
+docker build -t blockchainwithmicroservice_provider_service -f Dockerfile .
 
 docker stack deploy -c docker-compose.yml blockchain_stack
 
@@ -187,9 +187,9 @@ kubectl describe nodes
 gcloud auth configure-docker
 
 # Step 6: Build Docker images with correct platform for Kubernetes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest src/
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest src/
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest src/
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest .
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest .
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest .
 
 # Step 7: Push images to Google Container Registry
 docker push gcr.io/blockchain-with-microservice/blockchain-master:latest
@@ -218,7 +218,7 @@ kubectl rollout restart deployment/provider-deployment -n blockchain-microservic
 kubectl get pods -n blockchain-microservices
 
 # Step 12: Initialize database in provider pod
-kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python db_setup.py
+kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python scripts/db_setup.py
 
 # Step 13: Test services
 # Get external IP for provider service
@@ -440,7 +440,7 @@ kubectl describe pvc filestore-pvc -n blockchain-microservices
 kubectl apply -f k8s-provider-deployment.yaml
 
 # Step 7: Initialize the database on the shared volume (run ONCE)
-kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python db_setup.py
+kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python scripts/db_setup.py
 
 # Step 8: Verify all provider pods see the same database
 kubectl get pods -n blockchain-microservices -l app=provider-service -o wide
@@ -489,7 +489,7 @@ for pod in $(kubectl get pods -n blockchain-microservices -l app=provider-servic
 done
 
 # To deploy the latest changes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest src/ && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest src/ && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest src/ && docker push gcr.io/blockchain-with-microservice/blockchain-master:latest && docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest && docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest && kubectl rollout restart deployment/master-deployment -n blockchain-microservices && kubectl rollout restart deployment/requester-deployment -n blockchain-microservices && kubectl rollout restart deployment/provider-deployment -n blockchain-microservices && kubectl get pods -n blockchain-microservices
+docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest . && docker push gcr.io/blockchain-with-microservice/blockchain-master:latest && docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest && docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest && kubectl rollout restart deployment/master-deployment -n blockchain-microservices && kubectl rollout restart deployment/requester-deployment -n blockchain-microservices && kubectl rollout restart deployment/provider-deployment -n blockchain-microservices && kubectl get pods -n blockchain-microservices
 
 kubectl logs -f deployment/provider-deployment -n blockchain-microservices
 

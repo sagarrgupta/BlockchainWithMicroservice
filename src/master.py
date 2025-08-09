@@ -1,6 +1,5 @@
 # master.py
 import sys
-import requests
 from flask import Flask
 import node as node
 from node import BlockchainNode

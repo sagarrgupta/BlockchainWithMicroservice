@@ -5,7 +5,6 @@ import requests
 from flask import Flask, jsonify, abort
 import node as node
 from node import BlockchainNode
-import time
 
 app = Flask(__name__)
 

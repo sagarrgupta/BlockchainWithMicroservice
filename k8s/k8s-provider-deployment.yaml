@@ -58,7 +58,7 @@ spec:
             configMapKeyRef:
               name: blockchain-config
               key: PYTHONUNBUFFERED
-        command: ["python", "-u", "provider.py", "5004"]
+        command: ["python", "-u", "src/provider.py", "5004"]
         volumeMounts:
         - name: db-storage
           mountPath: /data

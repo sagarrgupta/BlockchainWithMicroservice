@@ -3,7 +3,7 @@
 import sys
 import requests
 import sqlite3
-from flask import Flask, jsonify, abort
+from flask import Flask, jsonify
 import node
 from node import BlockchainNode
 import os
@@ -85,9 +85,11 @@ def get_city(city_id):
 
 @app.route('/update_resource/<int:city_id>/<string:risk_level>', methods=['POST'])
 def update_resource(city_id, risk_level):
-
-    # Log the container handling the request
-    print(f"[GET /update_resource/{city_id, risk_level}] Handled by container: {os.uname()[1]}")
+    """
+    Update resource allocation via blockchain contract.
+    This endpoint is deprecated - use direct_update_resource for direct updates.
+    """
+    print(f"[POST /update_resource/{city_id}/{risk_level}] Handled by container: {os.uname()[1]}")
 
     # ─── (1) Sync step ──────────────────────────────────────────────────────────
     longest_chain = node.bc.chain
@@ -100,7 +102,7 @@ def update_resource(city_id, risk_level):
                 chain  = data.get('chain')
                 if length and chain and length > len(longest_chain) and node.bc.valid_chain(chain):
                     longest_chain = chain
-        except:
+        except Exception:
             continue
     node.bc.chain = longest_chain.copy()
 
@@ -127,7 +129,7 @@ def update_resource(city_id, risk_level):
         try:
             host_port = get_host_port(peer)
             requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
-        except:
+        except Exception:
             pass
 
     """
@@ -172,9 +174,10 @@ def update_resource(city_id, risk_level):
 
 @app.route('/direct_update_resource/<int:city_id>/<string:risk_level>', methods=['POST'])
 def direct_update_resource(city_id, risk_level):
-
-    # Log the container handling the request
-    print(f"[GET /update_resource/{city_id, risk_level}] Handled by container: {os.uname()[1]}")
+    """
+    Directly update resource allocation in database without blockchain.
+    """
+    print(f"[POST /direct_update_resource/{city_id}/{risk_level}] Handled by container: {os.uname()[1]}")
 
     """
     Update resource allocation based on risk level:

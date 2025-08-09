@@ -56,7 +56,7 @@ spec:
             secretKeyRef:
               name: node-api-keys
               key: api-key-1
-        command: ["python", "-u", "master.py", "5002"]
+        command: ["python", "-u", "src/master.py", "5002"]
         volumeMounts:
         - name: db-storage
           mountPath: /data

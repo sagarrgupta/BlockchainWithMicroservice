@@ -2,7 +2,7 @@
 import sys, threading, requests, hashlib, json
 from time import time, sleep
 from urllib.parse import urlparse
-from flask  import Flask, request, jsonify, Blueprint, abort
+from flask  import Flask, request, jsonify, Blueprint
 import os
 import socket
 import jwt
@@ -11,6 +11,9 @@ import jwt
 BOOTSTRAP_PORT = int(os.environ.get("BOOTSTRAP_PORT", "5002"))
 BOOTSTRAP_HOST = os.getenv("BOOTSTRAP_HOST", "127.0.0.1")
 BOOTSTRAP_ADDRESS = f"{BOOTSTRAP_HOST}:{BOOTSTRAP_PORT}"
+
+# ─── JWT Token Cache ───────────────────────────────────────────────
+_jwt_token_cache = {"token": None, "expires_at": 0}
 
 # ─── Blockchain Class ──────────────────────────────────────────────
 class Blockchain:
@@ -319,7 +322,7 @@ class Blockchain:
                         print(f"[update_resource] Missing city_id or risk_level in payload: {payload}")
                         continue
                     try:
-                        import sqlite3, os
+                        import sqlite3
                         db_path = "/data/disaster_resources.db"
                         if not os.path.exists(db_path):
                             print(f"[update_resource] DB not found at {db_path}")
@@ -503,7 +506,53 @@ def receive_block():
             else:
                 return jsonify({"error": "Invalid block, even after sync"}), 400
     elif block['index'] > last['index'] + 1:
-        return jsonify({"error": "Block index too high, please sync"}), 409
+        # Automatically sync with master peers and retry
+        print(f"[RECEIVE_BLOCK] Block index {block['index']} too high, syncing with master peers.")
+        longest_chain = bc.chain
+        
+        # First try master peers
+        for master_peer in bc.master_peers:
+            try:
+                r = requests.get(f"http://{master_peer}/chain", timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    chain = data.get('chain')
+                    if chain and len(chain) >= block['index'] and bc.valid_chain(chain):
+                        longest_chain = chain
+                        print(f"[RECEIVE_BLOCK] Found suitable chain from master peer {master_peer}")
+                        break
+            except Exception as e:
+                print(f"[RECEIVE_BLOCK] Error syncing with master peer {master_peer}: {e}")
+        
+        # If no suitable master chain found, try all peers
+        if len(longest_chain) < block['index']:
+            for peer in bc.get_node_addresses():
+                if peer in bc.master_peers:  # Skip master peers already checked
+                    continue
+                try:
+                    r = requests.get(f"http://{peer}/chain", timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        chain = data.get('chain')
+                        if chain and len(chain) >= block['index'] and bc.valid_chain(chain):
+                            longest_chain = chain
+                            print(f"[RECEIVE_BLOCK] Found suitable chain from peer {peer}")
+                            break
+                except Exception as e:
+                    print(f"[RECEIVE_BLOCK] Error syncing with peer {peer}: {e}")
+        
+        bc.chain = longest_chain.copy()
+        
+        # Now try to append the block again
+        last = bc.last_block
+        if block['index'] == last['index'] + 1 and block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
+            bc.chain.append(block)
+            bc.apply_contracts(block)
+            print(f"[RECEIVE_BLOCK] Block {block['index']} accepted after sync")
+            return jsonify({"message": "Block accepted after sync"}), 201
+        else:
+            print(f"[RECEIVE_BLOCK] Block {block['index']} still invalid after sync")
+            return jsonify({"error": "Block index too high, please sync"}), 409
     else:
         return jsonify({"message": "Block already exists or is old"}), 200
 
@@ -554,7 +603,8 @@ def sync_chain():
     replaced = False
     longest_chain = bc.chain
 
-    for peer in bc.get_node_addresses():
+    # First try master peers for sync
+    for peer in bc.master_peers:
         try:
             host_port = get_host_port(peer)
             r = requests.get(f"http://{host_port}/chain", timeout=3)
@@ -565,8 +615,28 @@ def sync_chain():
                 if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
                     longest_chain = chain
                     replaced = True
+                    print(f"[SYNC] Found longer chain from master peer {peer}: {length} blocks")
         except requests.exceptions.RequestException:
             continue
+
+    # If no master peer had a longer chain, try other peers
+    if not replaced:
+        for peer in bc.get_node_addresses():
+            if peer in bc.master_peers:  # Skip master peers already checked
+                continue
+            try:
+                host_port = get_host_port(peer)
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    length = data.get('length')
+                    chain = data.get('chain')
+                    if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                        longest_chain = chain
+                        replaced = True
+                        print(f"[SYNC] Found longer chain from peer {peer}: {length} blocks")
+            except requests.exceptions.RequestException:
+                continue
 
     if replaced:
         bc.chain = longest_chain.copy()
@@ -622,8 +692,8 @@ def mine():
     master_peers = list(bc.master_peers)
     other_peers = [p for p in bc.get_node_addresses() if p not in master_peers]
     
-    # Get JWT token for authentication
-    jwt_token = get_jwt_token_for_node()
+    # Get JWT token for authentication with retry
+    jwt_token = get_jwt_token_with_retry()
     headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
     
     for peer in master_peers:
@@ -726,7 +796,6 @@ class BlockchainNode:
         container_id = socket.gethostname()
         requested_address = f"{local_hostname}:{requested_port}:{container_id}"
 
-        import time
         max_retries = 30
         node_exists_at_5002 = False
         # Only wait for master if our role is NOT master
@@ -838,7 +907,7 @@ class BlockchainNode:
                 "role": self.role,
                 "is_local": False
             }
-            jwt_token = get_jwt_token_for_node()
+            jwt_token = get_jwt_token_with_retry()
             print(f"[DEBUG] Using JWT for registration: {jwt_token}")
             if not jwt_token:
                 print("Could not obtain JWT token, registration aborted.")
@@ -970,9 +1039,6 @@ def get_kubernetes_service_name(service_name):
 
 def discover_kubernetes_peers():
     """Discover peers using Kubernetes DNS service discovery"""
-    import socket
-    import os
-    
     # Get current namespace
     namespace = os.environ.get('NAMESPACE', 'blockchain-microservices')
     
@@ -993,25 +1059,214 @@ def discover_kubernetes_peers():
     return discovered_peers
 
 def get_jwt_token_for_node():
+    """
+    Get JWT token with automatic refresh. Caches token and refreshes before expiration.
+    Returns None if unable to get token after retries.
+    """
+    global _jwt_token_cache
+    current_time = time()
+    
+    # Check if we have a valid cached token (refresh 60 seconds before expiration)
+    if (_jwt_token_cache["token"] and 
+        _jwt_token_cache["expires_at"] > current_time + 60):
+        return _jwt_token_cache["token"]
+    
+    # Need to get a new token
     issuer_url = os.environ.get("JWT_ISSUER_URL", "http://jwt-issuer-service:8443")
     api_key = os.environ.get("NODE_API_KEY", "GxhLsgzHORw1rTDJMX3L2T85i9r52bQlLIhWxpGYjhA=")
-    print(f"[DEBUG] Attempting to fetch JWT from {issuer_url}/token with API key: {api_key}")
-    for _ in range(5):
+    
+    print(f"[JWT] Fetching new token from {issuer_url}/token")
+    
+    for attempt in range(5):
         try:
             resp = requests.post(f"{issuer_url}/token", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
-            print(f"[DEBUG] JWT issuer response: {resp.status_code} {resp.text}")
             if resp.status_code == 200:
-                token = resp.json()["token"]
-                print(f"[DEBUG] Got JWT token: {token[:20]}...")
+                data = resp.json()
+                token = data["token"]
+                expires_in = data.get("expires_in", 600)  # Default 10 minutes
+                
+                # Cache token with expiration time
+                _jwt_token_cache["token"] = token
+                _jwt_token_cache["expires_at"] = current_time + expires_in
+                
+                print(f"[JWT] Got fresh token, expires in {expires_in}s")
                 return token
             else:
-                print(f"Failed to get JWT token: {resp.status_code} {resp.text}")
+                print(f"[JWT] Failed to get token: {resp.status_code} {resp.text}")
         except Exception as e:
-            print(f"Error getting JWT token: {e}")
-        sleep(2)
+            print(f"[JWT] Error getting token (attempt {attempt+1}/5): {e}")
+        
+        if attempt < 4:  # Don't sleep after last attempt
+            sleep(2)
+    
+    print("[JWT] Failed to get token after 5 attempts")
     return None
+
+def get_jwt_token_with_retry(max_retries=3):
+    """
+    Get JWT token with additional retry logic for critical operations.
+    Returns None if unable to get token.
+    """
+    for attempt in range(max_retries):
+        token = get_jwt_token_for_node()
+        if token:
+            return token
+        print(f"[JWT] Retry {attempt+1}/{max_retries} for token")
+        sleep(1)
+    return None
+
+def sync_chain_prefer_masters() -> bool:
+    """
+    Sync local chain preferring master peers first. Only if no longer valid chain
+    is found among masters, check other peers. Returns True if chain replaced.
+    """
+    replaced = False
+    longest_chain = bc.chain
+
+    # Resolve master peers list
+    master_peers: list[str] = []
+    if hasattr(bc, 'master_peers') and bc.master_peers:
+        master_peers = list(bc.master_peers)
+    if not master_peers:
+        # Fallback: detect masters from known peers
+        for peer in bc.get_node_addresses():
+            if bc.peers_roles.get(peer) == "master":
+                master_peers.append(peer)
+
+    # 1) Try masters
+    for peer in master_peers:
+        try:
+            host_port = get_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
+            if r.status_code == 200:
+                data = r.json()
+                length = data.get('length')
+                chain = data.get('chain')
+                if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                    longest_chain = chain
+                    replaced = True
+        except Exception:
+            continue
+
+    # 2) Only if there are no master peers at all, try other peers
+    if not master_peers:
+        for peer in bc.get_node_addresses():
+            if peer in master_peers:
+                continue
+            try:
+                host_port = get_host_port(peer)
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    length = data.get('length')
+                    chain = data.get('chain')
+                    if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                        longest_chain = chain
+                        replaced = True
+            except Exception:
+                continue
+
+    if replaced:
+        bc.chain = longest_chain.copy()
+    return replaced
+
+def broadcast_block_with_priority(block: dict) -> None:
+    """
+    Broadcast a block with priority: masters → providers → other peers.
+    Uses JWT for auth and respects Kubernetes/Docker addressing via get_host_port.
+    """
+    all_peers = bc.get_node_addresses()
+
+    master_peers: list[str] = []
+    if hasattr(bc, 'master_peers') and bc.master_peers:
+        master_peers = list(bc.master_peers)
+    if not master_peers:
+        for peer in all_peers:
+            if bc.peers_roles.get(peer) == 'master':
+                master_peers.append(peer)
+
+    provider_peers = [p for p in all_peers if p not in master_peers and bc.peers_roles.get(p) == 'provider']
+    other_peers    = [p for p in all_peers if p not in master_peers and p not in provider_peers]
+
+    jwt_token = get_jwt_token_with_retry()
+    headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+
+    def post_block(peers: list[str]):
+        for peer in peers:
+            try:
+                host_port = get_host_port(peer)
+                requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=3)
+            except Exception:
+                continue
+
+    # Priority order
+    post_block(master_peers)
+    post_block(provider_peers)
+    post_block(other_peers)
+
+def mine_and_broadcast_transactions(transactions: list[dict], mined_by_identifier: str) -> dict:
+    """
+    Centralized miner: sync (masters→others), mine one block with provided
+    transactions, then broadcast (masters→providers→others). Returns the block.
+    """
+    # Metrics start
+    bc.startTime.append(time())
+
+    # Sync
+    try:
+        sync_chain_prefer_masters()
+    except Exception:
+        pass
+    bc.chainSyncedTime.append(time())
+
+    # Mine
+    bc.current_transactions = transactions or []
+    last_proof = bc.last_block['proof']
+    proof = bc.proof_of_work(last_proof)
+    block = bc.new_block(proof, mined_by=mined_by_identifier)
+    bc.blockMinedTime.append(time())
+
+    # Broadcast
+    broadcast_block_with_priority(block)
+    bc.blockPropagationTime.append(time())
+    return block
+
+def mine_contract_and_broadcast(contract_id: str, contract_payload: dict, sender_identifier: str, recipient_role: str = 'provider') -> dict:
+    """
+    Centralized flow for contract transactions: sync (masters→others),
+    create a single contract transaction, mine, and broadcast with priority.
+    Returns the mined block.
+    """
+    # Metrics start
+    bc.startTime.append(time())
+
+    # Sync
+    try:
+        sync_chain_prefer_masters()
+    except Exception:
+        pass
+    bc.chainSyncedTime.append(time())
+
+    # Create contract transaction
+    bc.new_transaction(
+        sender=sender_identifier,
+        recipient=recipient_role,
+        contract_id=contract_id,
+        contract_payload=contract_payload
+    )
+
+    # Mine
+    last_proof = bc.last_block['proof']
+    proof = bc.proof_of_work(last_proof)
+    block = bc.new_block(proof, mined_by=sender_identifier)
+    bc.blockMinedTime.append(time())
+
+    # Broadcast
+    broadcast_block_with_priority(block)
+    bc.blockPropagationTime.append(time())
+    return block
 
 # ─── If someone runs node.py directly, bail out ────────────────────────────────
 if __name__ == '__main__':
-    print("node.py is a library. Run your Flask microservices (user.py, provider.py, requester.py).")
+    print("node.py is a library. Run your Flask microservices (provider.py, requester.py).")
     sys.exit(0)

@@ -29,7 +29,7 @@ spec:
           value: "1LIXXwwatUUuD3VCDmvL9/Yg/ceZTt0/RMfoluSlZoA=,1LIXXwwatUUuD3VCDmvL9/Yg/ceZTt0/RMfoluSlZoA="
         - name: PYTHONUNBUFFERED
           value: "1"
-        command: ["python", "-u", "issuer.py"]
+        command: ["python", "-u", "src/issuer.py"]
         volumeMounts:
         - name: jwt-keys
           mountPath: /secrets
