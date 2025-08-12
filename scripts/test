@@ -1,0 +1,290 @@
+test 1 (if any pods are in pending state, increment number of nodes by 1):
+- all pods should be 1
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 2 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 1
+- requester should be 1
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 3 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 3
+- requester should be 3
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 4 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 5
+- requester should be 5
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 5 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 5
+- requester should be 5
+- issuer should be 3
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 6 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 10
+- requester should be 10
+- issuer should be 3
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 7 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 8 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 5
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 9 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 10
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 10 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 5
+- provider should be 10
+- requester should be 10
+- issuer should be 10
+- run /request 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- totalTimeToGetData = from the response you will get total time for each of this request, you would get total time taken to return data to user. give me average of it
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- blockPropagationTime = blockPropagationTime - blockMinedTime
+- totalTime = blockPropagationTime - startTime + totalTimeToGetData
+
+test 11 (if any pods are in pending state, increment number of nodes by 1):
+- all pods should be 1
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 12 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 1
+- requester should be 1
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 13 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 3
+- requester should be 3
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 14 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 5
+- requester should be 5
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 15 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 5
+- requester should be 5
+- issuer should be 3
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 16 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 10
+- requester should be 10
+- issuer should be 3
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 17 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 3
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 18 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 5
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 19 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 10
+- provider should be 10
+- requester should be 10
+- issuer should be 5
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+test 20 (if any pods are in pending state, increment number of nodes by 1):
+- master should be 5
+- provider should be 10
+- requester should be 10
+- issuer should be 10
+- run /update_resource 5 times and then get block_propogation_metrics for provider and requester, you will get average for 5 times
+- then calculate these things for me:
+- startTime: startTime
+- chainSyncedTime = chainSyncedTime - startTime
+- blockMinedTime = blockMinedTime - chainSyncedTime
+- providerDataUpdateTime = providerDataUpdateTime - startTime
+- totalTimeToUpdateData = endTime (for the provider who updated the data, this can be found by which provider has the smallest providerDataUpdateTime) - startTime
+- totalTimeToPropogate = (go thorough all the provider pods and get the most biggest/recent endTime) - startTime
+
+================================================================================
+TEST 11 RESULTS - 2025-08-11 22:40:03
+================================================================================
+Timestamp	Test Run	startTime (ms)	chainSyncedTime (ms)	blockMinedTime (ms)	providerDataUpdateTime (ms)	totalTimeToUpdateData (ms)	totalTimeToPropogate (ms)
+2025-08-11 22:40:03	Test 11 - update_resource x5	0	0	0	1754976963161.5454	1754976994561.5896	1754976994561.5896
+
+Provider Metrics: {
+  "blockMinedTime_avg": 0,
+  "blockPropagationTime_avg": 0,
+  "chainSyncedTime_avg": 0,
+  "dataReceivedAtProviderTime_avg": 1754976963161.5454,
+  "endTime_avg": 1754976994561.5896,
+  "startTime_avg": 0
+}
+Requester Metrics: {
+  "blockMinedTime_avg": 1754976994350.6987,
+  "blockPropagationTime_avg": 1754977001595.4072,
+  "chainSyncedTime_avg": 1754976994349.9827,
+  "dataReceivedAtProviderTime_avg": 0,
+  "endTime_avg": 0,
+  "startTime_avg": 1754976994325.344
+}

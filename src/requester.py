@@ -1,6 +1,7 @@
 # requester.py
 
 import sys
+import os
 import requests
 from flask import Flask, jsonify
 import node as node
@@ -35,7 +36,8 @@ def request_city(city_id):
     provider_data = None
     try:
         # (1) Directly hit provider service
-        provider_addr = "provider_service:5004"
+        provider_service_name = os.environ.get("PROVIDER_SERVICE_NAME", "provider_service")
+        provider_addr = f"{provider_service_name}:5004"
         host_port = get_host_port(provider_addr)
         resp = requests.get(f"http://{host_port}/city/{city_id}", timeout=5)
         if resp.status_code == 404:
@@ -115,7 +117,8 @@ def direct_update_resource_allocation(city_id, risk_level):
 
     # (4) Directly hit the provider service
     try:
-        provider_addr = "provider_service:5004"
+        provider_service_name = os.environ.get("PROVIDER_SERVICE_NAME", "provider_service")
+        provider_addr = f"{provider_service_name}:5004"
         host_port = get_host_port(provider_addr)
     except Exception as e:
         return jsonify({"error": "Failed to resolve provider service", "details": str(e)}), 503

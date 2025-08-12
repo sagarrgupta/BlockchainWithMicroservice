@@ -186,7 +186,7 @@ class Blockchain:
             if node_addr == self.local_node:
                 continue
             try:
-                host_port = get_host_port(node_addr)
+                host_port = get_pod_host_port(node_addr)
                 r = requests.get(f"http://{host_port}/chain", timeout=5)
                 if r.status_code == 200:
                     data = r.json()
@@ -299,7 +299,14 @@ class Blockchain:
         For each transaction in the newly‐appended block, check if it has a
         'contract_id'. If so, dispatch to the corresponding on‐chain logic:
           - "update_resource_allocation"
+        
+        Also track metrics for provider nodes when they receive any transactions.
         """
+        print(f"[DEBUG] apply_contracts called with {len(block.get('transactions', []))} transactions")
+        print(f"[DEBUG] local_node: {self.local_node}")
+        print(f"[DEBUG] peers_roles: {self.peers_roles}")
+        print(f"[DEBUG] is_provider: {self.peers_roles.get(self.local_node) == 'provider'}")
+        
         for tx in block['transactions']:
             cid = tx.get('contract_id', "")
             payload = tx.get('contract_payload', {})
@@ -307,7 +314,6 @@ class Blockchain:
             if cid == "update_resource_allocation":
                 # Only provider nodes should update the DB
                 if self.peers_roles.get(self.local_node, None) == payload.get("authority"):
-                    self.dataReceivedAtProviderTime.append(time())
                     city_id = payload.get("city_id")
                     risk_level = payload.get("risk_level")
                     # Map risk levels to resource amounts
@@ -347,12 +353,18 @@ class Blockchain:
                             print(f"[update_resource] Updated city_id {city_id} to risk_level {risk_level}")
                         conn.commit()
                         conn.close()
-                        self.endTime.append(time())
+                        print(f"[PROVIDER_METRICS] Database update completed, endTime recorded")
                     except Exception as e:
                         print(f"[update_resource] DB error: {e}")
                 else:
                     print(f"[update_resource] Not a provider node, skipping DB update.")
             # else: unrecognized or no contract_id → do nothing
+        
+        # If this is a provider node and we received transactions, record endTime
+        if (self.peers_roles.get(self.local_node) == "provider" and 
+            block['transactions']):
+            self.endTime.append(time())
+            print(f"[PROVIDER_METRICS] Provider processed regular transactions, endTime recorded")
 
 
 # ─── Blueprint for Core Blockchain Endpoints ─────────────────────────────────────
@@ -456,11 +468,12 @@ def receive_block():
     if block['index'] == last['index'] + 1:
         # Validate previous_hash and proof
         if block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
-            bc.chain.append(block)
-            bc.apply_contracts(block)
             # If the current node is provider role, then add endTime logic
             if bc.peers_roles.get(bc.local_node) == "provider":
-                bc.endTime.append(time())
+                bc.dataReceivedAtProviderTime.append(time())
+                
+            bc.chain.append(block)
+            bc.apply_contracts(block)
 
             # --- Master node: gossip only to other master nodes ---
             if bc.peers_roles.get(bc.local_node) == "master":
@@ -468,7 +481,8 @@ def receive_block():
                 headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
                 for peer in bc.master_peers:
                     try:
-                        requests.post(f"http://{peer}/receive_block", json={'block': block}, headers=headers, timeout=2)
+                        host_port = get_pod_host_port(peer)
+                        requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=2)
                     except:
                         pass
             else:
@@ -477,7 +491,8 @@ def receive_block():
                 headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
                 for peer in bc.get_node_addresses():
                     try:
-                        requests.post(f"http://{peer}/receive_block", json={'block': block}, headers=headers, timeout=2)
+                        host_port = get_pod_host_port(peer)
+                        requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=2)
                     except:
                         pass
             return jsonify({"message": "Block accepted"}), 201
@@ -487,7 +502,8 @@ def receive_block():
             longest_chain = bc.chain
             for master_peer in bc.master_peers:
                 try:
-                    r = requests.get(f"http://{master_peer}/chain", timeout=5)
+                    host_port = get_pod_host_port(master_peer)
+                    r = requests.get(f"http://{host_port}/chain", timeout=5)
                     if r.status_code == 200:
                         data = r.json()
                         length = data.get('length')
@@ -513,7 +529,8 @@ def receive_block():
         # First try master peers
         for master_peer in bc.master_peers:
             try:
-                r = requests.get(f"http://{master_peer}/chain", timeout=5)
+                host_port = get_pod_host_port(master_peer)
+                r = requests.get(f"http://{host_port}/chain", timeout=5)
                 if r.status_code == 200:
                     data = r.json()
                     chain = data.get('chain')
@@ -530,7 +547,8 @@ def receive_block():
                 if peer in bc.master_peers:  # Skip master peers already checked
                     continue
                 try:
-                    r = requests.get(f"http://{peer}/chain", timeout=5)
+                    host_port = get_pod_host_port(peer)
+                    r = requests.get(f"http://{host_port}/chain", timeout=5)
                     if r.status_code == 200:
                         data = r.json()
                         chain = data.get('chain')
@@ -606,7 +624,7 @@ def sync_chain():
     # First try master peers for sync
     for peer in bc.master_peers:
         try:
-            host_port = get_host_port(peer)
+            host_port = get_pod_host_port(peer)
             r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 data = r.json()
@@ -625,7 +643,7 @@ def sync_chain():
             if peer in bc.master_peers:  # Skip master peers already checked
                 continue
             try:
-                host_port = get_host_port(peer)
+                host_port = get_pod_host_port(peer)
                 r = requests.get(f"http://{host_port}/chain", timeout=3)
                 if r.status_code == 200:
                     data = r.json()
@@ -667,7 +685,7 @@ def mine():
     sync_sources = list(bc.master_peers) if bc.master_peers else bc.get_node_addresses()
     for peer in sync_sources:
         try:
-            host_port = get_host_port(peer)
+            host_port = get_pod_host_port(peer)
             r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 data = r.json()
@@ -698,13 +716,13 @@ def mine():
     
     for peer in master_peers:
         try:
-            host_port = get_host_port(peer)
+            host_port = get_pod_host_port(peer)
             requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
         except:
             pass
     for peer in other_peers:
         try:
-            host_port = get_host_port(peer)
+            host_port = get_pod_host_port(peer)
             requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
         except:
             pass
@@ -721,24 +739,18 @@ def block_propagation_metrics_endpoint():
     """
     Return block propagation metrics for monitoring.
     
-    JWT Authentication: Requires valid JWT token with 'blockchain:metrics' scope.
+    Public endpoint (no JWT required).
     """
-    # JWT Authentication
-    payload = bc.require_jwt_auth(required_scope='blockchain:metrics')
-    if not payload:
-        return jsonify({"error": "Invalid or missing JWT token with 'blockchain:metrics' scope"}), 401
-    
-    node_id = payload.get('sub', 'unknown')
-    print(f"Accessing metrics from authenticated node: {node_id}")
+    # JWT requirement removed per deployment needs
     
     def avg(arr):
         return sum(arr) / len(arr) if arr else 0
 
     metrics = {
-        "startTime_avg": avg(bc.startTime),
-        "chainSyncedTime_avg": avg(bc.chainSyncedTime),
-        "blockMinedTime_avg": avg(bc.blockMinedTime),
-        "blockPropagationTime_avg": avg(bc.blockPropagationTime),
+        "startTime_avg": (avg(bc.startTime)) * 1000,
+        "chainSyncedTime_avg": (avg(bc.chainSyncedTime)) * 1000,
+        "blockMinedTime_avg": (avg(bc.blockMinedTime)) * 1000,
+        "blockPropagationTime_avg": (avg(bc.blockPropagationTime)) * 1000,
         "dataReceivedAtProviderTime_avg": (avg(bc.dataReceivedAtProviderTime)) * 1000,
         "endTime_avg": (avg(bc.endTime)) * 1000
     }
@@ -792,9 +804,17 @@ class BlockchainNode:
                     local_hostname = "requester_service"
                 elif role == "provider":
                     local_hostname = "provider_service"
-        # Add container hostname/ID for uniqueness
+        # Add pod identity (prefer Kubernetes Downward API envs) for uniqueness and direct addressing
         container_id = socket.gethostname()
-        requested_address = f"{local_hostname}:{requested_port}:{container_id}"
+        pod_ip = os.environ.get("POD_IP")
+        if not pod_ip:
+            try:
+                pod_ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                pod_ip = "127.0.0.1"
+        pod_name = os.environ.get("POD_NAME", container_id)
+        # Register using pod IP to enable direct pod-to-pod communication
+        requested_address = f"{pod_ip}:{requested_port}:{pod_name}"
 
         max_retries = 30
         node_exists_at_5002 = False
@@ -802,7 +822,8 @@ class BlockchainNode:
         if role != "master":
             for attempt in range(max_retries):
                 try:
-                    r = requests.get(f"http://{BOOTSTRAP_ADDRESS}/chain", timeout=2)
+                    host_port = get_pod_host_port(BOOTSTRAP_ADDRESS)
+                    r = requests.get(f"http://{host_port}/chain", timeout=2)
                     if r.status_code == 200:
                         node_exists_at_5002 = True
                         break
@@ -872,7 +893,8 @@ class BlockchainNode:
         if not IS_BOOTSTRAP:
             self.register_with_peer(BOOTSTRAP_ADDRESS)
             try:
-                r = requests.get(f"http://{BOOTSTRAP_ADDRESS}/chain", timeout=3)
+                host_port = get_pod_host_port(BOOTSTRAP_ADDRESS)
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
                 if r.status_code == 200:
                     data = r.json()
                     chain = data.get('chain')
@@ -952,7 +974,7 @@ class BlockchainNode:
                 current_peers = bc.get_node_addresses().copy()
             for peer in current_peers:
                 try:
-                    host_port = get_host_port(peer)
+                    host_port = get_pod_host_port(peer)
                     r = requests.get(f"http://{host_port}/nodes", timeout=3)
                     if r.status_code == 200:
                         # Reset failure count
@@ -964,7 +986,7 @@ class BlockchainNode:
                             if addr and role:
                                 # Only add if reachable
                                 try:
-                                    host_port2 = get_host_port(addr)
+                                    host_port2 = get_pod_host_port(addr)
                                     r2 = requests.get(f"http://{host_port2}/chain", timeout=2)
                                     if r2.status_code == 200:
                                         bc.register_node(addr, is_local=False)
@@ -1011,24 +1033,60 @@ class BlockchainNode:
             sleep(30)
 
 def get_host_port(peer):
-    # peer is like "provider_service:5004:0bd02b238772"
-    # In Kubernetes, we need to handle both Docker Swarm and Kubernetes service names
+    # peer is like "provider-service:5004:provider-deployment-5f7d7559cd-8mmvn"
+    # For service-level communication, extract just service:port
     if ':' in peer:
         parts = peer.split(':')
         if len(parts) >= 2:
-            # Extract service name and port, ignore container ID for network requests
+            # Extract service name and port, ignore container ID/deployment name
             service_name = parts[0]
             port = parts[1]
             
-            # Handle Kubernetes service names
+            # Handle Kubernetes service names (with hyphens)
             if service_name.endswith('-service'):
-                # This is a Kubernetes service name
-                return f"{service_name}.blockchain-microservices.svc.cluster.local:{port}"
+                # This is a Kubernetes service name - use the service name directly
+                return f"{service_name}:{port}"
             else:
-                # This is a Docker Swarm service name
+                # This is a Docker Swarm service name or other format
                 return f"{service_name}:{port}"
     
     # Fallback to original peer address
+    return peer
+
+def get_pod_host_port(peer):
+    """
+    Resolve a stored peer triple to direct pod-to-pod address.
+    Expected formats:
+      - "pod_ip:port:pod_name" (preferred) → "pod_ip:port"
+      - "service:port:pod_name" → resolves pod_name to IP → "pod_ip:port" (best-effort)
+      - "service:port" → returns as-is (service LB)
+    """
+    parts = peer.split(':')
+    if len(parts) >= 2:
+        host_or_svc, port = parts[0], parts[1]
+        # If first segment looks like an IP, just use it
+        try:
+            socket.inet_aton(host_or_svc)
+            return f"{host_or_svc}:{port}"
+        except OSError:
+            pass
+
+        # If we also have a pod_name, try to resolve pod_name to IP via DNS
+        if len(parts) == 3:
+            _, _, pod_name = parts
+            namespace = os.environ.get("NAMESPACE", "blockchain-microservices")
+            # Try the pod FQDN first; if it resolves, use its IP
+            pod_fqdn = f"{pod_name}.{namespace}.pod.cluster.local"
+            try:
+                pod_ip = socket.gethostbyname(pod_fqdn)
+                return f"{pod_ip}:{port}"
+            except socket.gaierror:
+                # Fallback: return service-level addressing if we cannot resolve pod
+                return f"{host_or_svc}:{port}"
+
+        # No pod specified; return service-level address
+        return f"{host_or_svc}:{port}"
+
     return peer
 
 def get_kubernetes_service_name(service_name):
@@ -1136,7 +1194,7 @@ def sync_chain_prefer_masters() -> bool:
     # 1) Try masters
     for peer in master_peers:
         try:
-            host_port = get_host_port(peer)
+            host_port = get_pod_host_port(peer)  # Use individual pod addresses
             r = requests.get(f"http://{host_port}/chain", timeout=3)
             if r.status_code == 200:
                 data = r.json()
@@ -1154,7 +1212,7 @@ def sync_chain_prefer_masters() -> bool:
             if peer in master_peers:
                 continue
             try:
-                host_port = get_host_port(peer)
+                host_port = get_pod_host_port(peer)  # Use individual pod addresses
                 r = requests.get(f"http://{host_port}/chain", timeout=3)
                 if r.status_code == 200:
                     data = r.json()
@@ -1173,9 +1231,10 @@ def sync_chain_prefer_masters() -> bool:
 def broadcast_block_with_priority(block: dict) -> None:
     """
     Broadcast a block with priority: masters → providers → other peers.
-    Uses JWT for auth and respects Kubernetes/Docker addressing via get_host_port.
+    Uses JWT for auth and respects Kubernetes/Docker addressing via get_pod_host_port.
     """
     all_peers = bc.get_node_addresses()
+    print(f"[BROADCAST_DEBUG] All peers: {all_peers}")
 
     master_peers: list[str] = []
     if hasattr(bc, 'master_peers') and bc.master_peers:
@@ -1188,15 +1247,23 @@ def broadcast_block_with_priority(block: dict) -> None:
     provider_peers = [p for p in all_peers if p not in master_peers and bc.peers_roles.get(p) == 'provider']
     other_peers    = [p for p in all_peers if p not in master_peers and p not in provider_peers]
 
+    print(f"[BROADCAST_DEBUG] Master peers: {master_peers}")
+    print(f"[BROADCAST_DEBUG] Provider peers: {provider_peers}")
+    print(f"[BROADCAST_DEBUG] Other peers: {other_peers}")
+    print(f"[BROADCAST_DEBUG] Current node role: {bc.peers_roles.get(bc.local_node)}")
+
     jwt_token = get_jwt_token_with_retry()
     headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
 
     def post_block(peers: list[str]):
+        print(f"[BROADCAST_DEBUG] Broadcasting to {len(peers)} peers: {peers}")
         for peer in peers:
             try:
-                host_port = get_host_port(peer)
+                host_port = get_pod_host_port(peer)  # Use individual pod addresses
+                print(f"[BROADCAST_DEBUG] Sending block to {peer} at {host_port}")
                 requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=3)
-            except Exception:
+            except Exception as e:
+                print(f"[BROADCAST_DEBUG] Failed to send to {peer}: {e}")
                 continue
 
     # Priority order
@@ -1209,27 +1276,45 @@ def mine_and_broadcast_transactions(transactions: list[dict], mined_by_identifie
     Centralized miner: sync (masters→others), mine one block with provided
     transactions, then broadcast (masters→providers→others). Returns the block.
     """
-    # Metrics start
-    bc.startTime.append(time())
-
-    # Sync
+    print(f"[MINING_DEBUG] Starting mine_and_broadcast_transactions with {len(transactions)} transactions")
     try:
-        sync_chain_prefer_masters()
-    except Exception:
-        pass
-    bc.chainSyncedTime.append(time())
+        # Metrics start
+        bc.startTime.append(time())
+        print(f"[MINING_DEBUG] Added startTime metric")
 
-    # Mine
-    bc.current_transactions = transactions or []
-    last_proof = bc.last_block['proof']
-    proof = bc.proof_of_work(last_proof)
-    block = bc.new_block(proof, mined_by=mined_by_identifier)
-    bc.blockMinedTime.append(time())
+        # Sync
+        try:
+            sync_chain_prefer_masters()
+            print(f"[MINING_DEBUG] Chain sync completed")
+        except Exception as e:
+            print(f"[MINING_DEBUG] Chain sync failed: {e}")
+            pass
+        bc.chainSyncedTime.append(time())
+        print(f"[MINING_DEBUG] Added chainSyncedTime metric")
 
-    # Broadcast
-    broadcast_block_with_priority(block)
-    bc.blockPropagationTime.append(time())
-    return block
+        # Mine
+        bc.current_transactions = transactions or []
+        last_proof = bc.last_block['proof']
+        print(f"[MINING_DEBUG] Starting proof of work with last_proof: {last_proof}")
+        proof = bc.proof_of_work(last_proof)
+        print(f"[MINING_DEBUG] Proof of work completed: {proof}")
+        block = bc.new_block(proof, mined_by=mined_by_identifier)
+        print(f"[MINING_DEBUG] New block created: {block['index']}")
+        bc.blockMinedTime.append(time())
+        print(f"[MINING_DEBUG] Added blockMinedTime metric")
+
+        # Broadcast
+        print(f"[MINING_DEBUG] Starting broadcast to peers")
+        broadcast_block_with_priority(block)
+        print(f"[MINING_DEBUG] Broadcast completed")
+        bc.blockPropagationTime.append(time())
+        print(f"[MINING_DEBUG] Added blockPropagationTime metric")
+        return block
+    except Exception as e:
+        print(f"[MINING_DEBUG] Exception in mine_and_broadcast_transactions: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 def mine_contract_and_broadcast(contract_id: str, contract_payload: dict, sender_identifier: str, recipient_role: str = 'provider') -> dict:
     """

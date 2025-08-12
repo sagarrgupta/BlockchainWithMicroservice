@@ -1,171 +1,3 @@
-# To get the chain
-curl http://localhost:5002/chain
-curl http://localhost:5003/chain
-curl http://localhost:5004/chain
-
-# To get the nodes
-curl http://localhost:5002/nodes
-curl http://localhost:5003/nodes
-curl http://localhost:5004/nodes
-
-# To add a user
-curl -X POST http://localhost:5002/add_user \
-     -H "Content-Type: application/json" \
-     -d '{
-           "id": 1,
-           "name": "Sagar",
-           "initial_balance": 100
-         }'
-
-# To add a user
-curl -X POST http://localhost:5002/add_user \
-     -H "Content-Type: application/json" \
-     -d '{
-           "id": 2,
-           "name": "Mohit",
-           "initial_balance": 200
-         }'
-
-# To transfer
-curl -X POST http://localhost:5002/transfer \
-     -H "Content-Type: application/json" \
-     -d '{"from_id": 42, "to_id": 1, "amount": 2}'
-
-# To get the balance
-curl http://localhost:5004/request/1
-curl http://localhost:5004/request/2
-
-# To remove docker image
-docker stop $(docker ps -q --filter "name=blockchainwithmicroservices") 2>/dev/null
-docker rm   $(docker ps -a -q --filter "name=blockchainwithmicroservices") 2>/dev/null
-
-# To start docker
-docker-compose build --no-cache              
-docker-compose up -d --remove-orphans
-
-# To check the logs
-docker compose logs -f provider_service
-
-# To get into shell
-docker exec -it blockchainwithmicroservice-requester_service-1 sh
-
-# To send multiple requests
-curl http://provider_service:5004/city/1
-curl http://provider_service:5004/city/2
-curl http://provider_service:5004/city/3
-
-# To run more services
-docker compose up --scale requester_service=3;
-docker compose up --scale provider_service=3;
-docker compose up --scale master_service=3;
-docker compose up --scale master_service=3 --scale requester_service=5
-# To get resource
-curl http://127.0.0.1:5003/request/1
-
-# To update resource
-curl -X POST http://localhost:5003/update_resource/1/high
-
-# To stop the docker
-docker compose down
-
-# To run the bootstrap node
-docker exec -it 72bfc00ce90c50705155ef107544b311b084cc02f6b62186d6a3dfe3c8697d7e curl http://localhost:5003/request/1
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl -X POST http://localhost:5003/update_resource/1/high
-
-# To get the block propagation metrics
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/block_propagation_metrics
-curl http://localhost:5004/block_propagation_metrics
-
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5002/chain
-curl http://localhost:5004/chain
-
-# To check docker version
-docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 which docker
-
-# time it takes
-# without blockchain between 2 nodes: 7.05 ms
-# without blockchain between 3 nodes: 4.64 ms
-# without blockchain between 5 nodes: 7.30 ms
-# without blockchain between 10 nodes: 13.278
-
-# with 1 block (2 nodes): 16.88 ms
-# with 2 blocks (2 nodes): 24.23 ms
-# with 3 blocks (3 nodes): 72.73 ms
-# with 5 blocks (5 nodes): 255.73.13 ms
-# with 10 blocks (5 nodes): 2374.79 ms
-
-# node1 = 2 chain - 5002
-# node2 = 2 chain
-# node3 = 1 chain -> register -> it passes longest chain -> copy local -> 2 chain
-
-# shouldExternalUserCanChange = true/false
-# /customChangeToDatabase 
-
-"""
-
-source venv/bin/activate
-python src/intermediary.py 5004 127.0.0.1:5005
-
-source venv/bin/activate
-python src/intermediary.py 5005 127.0.0.1:5006
-
-source venv/bin/activate
-python src/intermediary.py 5006 127.0.0.1:5007
-
-source venv/bin/activate
-python src/intermediary.py 5007 127.0.0.1:5008
-
-source venv/bin/activate
-python src/intermediary.py 5008 127.0.0.1:5009
-
-source venv/bin/activate
-python src/intermediary.py 5009 127.0.0.1:5010
-
-source venv/bin/activate
-python src/intermediary.py 5010 127.0.0.1:5011
-
-source venv/bin/activate
-python src/intermediary.py 5011 127.0.0.1:5003
-
-"""
-
-docker swarm leave --force
-
-docker swarm init
-
-docker build -t blockchainwithmicroservice_db_setup_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_master_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_requester_service -f Dockerfile .
-docker build -t blockchainwithmicroservice_provider_service -f Dockerfile .
-
-docker stack deploy -c docker-compose.yml blockchain_stack
-
-docker service scale blockchain_stack_master_service=3
-
-curl http://master_service:5002/nodes
-curl http://requester_service:5003/nodes
-curl http://provider_service:5004/nodes
-
-curl http://master_service:5002/chain
-curl http://requester_service:5003/chain
-curl http://provider_service:5004/chain
-
-curl http://requester_service:5003/request/1
-
-docker service scale blockchain_stack_master_service=3
-docker service scale blockchain_stack_requester_service=3
-
-# create cluster
-gcloud container clusters create blockchain-cluster --region=us-central1 --num-nodes=1 --machine-type=e2-micro --disk-size=12 --disk-type=pd-standard
-
-# get credentials
-gcloud container clusters get-credentials blockchain-cluster --region=us-central1
-
-# get cluster info
-kubectl cluster-info
-
 # =============================================================================
 # KUBERNETES DEPLOYMENT COMMANDS (STEP BY STEP)
 # =============================================================================
@@ -174,7 +6,7 @@ kubectl cluster-info
 gcloud container clusters delete blockchain-cluster --region=us-central1 --quiet
 
 # Step 2: Create new cluster with larger nodes for Free Trial ($300 credits)
-gcloud container clusters create blockchain-cluster --region=us-central1 --num-nodes=1 --machine-type=e2-standard-2 --disk-size=20 --disk-type=pd-standard --enable-autoscaling --min-nodes=1 --max-nodes=3
+gcloud container clusters create blockchain-cluster --region=us-central1 --num-nodes=1 --machine-type=e2-standard-2 --disk-size=20 --disk-type=pd-standard --enable-autoscaling --min-nodes=1 --max-nodes=1
 
 # Step 3: Get cluster credentials
 gcloud container clusters get-credentials blockchain-cluster --region=us-central1
@@ -186,24 +18,48 @@ kubectl describe nodes
 # Step 5: Configure Docker for Google Container Registry
 gcloud auth configure-docker
 
-# Step 6: Build Docker images with correct platform for Kubernetes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest .
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest .
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest .
+# Step 5.1: Create Google Filestore (NFS) instance (one-time)
+gcloud filestore instances create blockchain-filestore --zone=us-central1-a --tier=STANDARD --file-share=name=vol1,capacity=1TB --network=name=default
+
+# Step 5.2: Get Filestore IP and update PV YAML 'server' field automatically
+FILESTORE_IP=$(gcloud filestore instances describe blockchain-filestore --zone=us-central1-a --format='get(networks[0].ipAddresses[0])')
+echo "Filestore IP: ${FILESTORE_IP}"
+sed -i '' -e "s/^\(\s*server:\s*\).*/\1${FILESTORE_IP}/" /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-filestore-pv-pvc.yaml
+
+# Step 5.3: Apply Filestore PV and PVC, then wait for claim to bind (before deploying provider)
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-filestore-pv-pvc.yaml
+kubectl wait --for=condition=Bound pvc/filestore-pvc -n blockchain-microservices --timeout=30s
+
+# Step 6: Build Docker images with correct platform for Kubernetes (absolute paths)
+PROJECT_ID="$(gcloud config get-value project --quiet)"
+docker build --platform linux/amd64 \
+  -t gcr.io/${PROJECT_ID}/blockchain-master:latest \
+  -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile \
+  /Users/sagargupta/BlockchainWithMicroservice
+docker build --platform linux/amd64 \
+  -t gcr.io/${PROJECT_ID}/blockchain-requester:latest \
+  -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile \
+  /Users/sagargupta/BlockchainWithMicroservice
+docker build --platform linux/amd64 \
+  -t gcr.io/${PROJECT_ID}/blockchain-provider:latest \
+  -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile \
+  /Users/sagargupta/BlockchainWithMicroservice
 
 # Step 7: Push images to Google Container Registry
-docker push gcr.io/blockchain-with-microservice/blockchain-master:latest
-docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest
-docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest
+docker push gcr.io/${PROJECT_ID}/blockchain-master:latest
+docker push gcr.io/${PROJECT_ID}/blockchain-requester:latest
+docker push gcr.io/${PROJECT_ID}/blockchain-provider:latest
 
-# Step 8: Apply Kubernetes manifests
+# Step 8: Apply Kubernetes manifests (ordered)
 kubectl create namespace blockchain-microservices --dry-run=client -o yaml | kubectl apply -f -
-kubectl apply -f k8s-namespace.yaml
-kubectl apply -f k8s-configmap.yaml
-kubectl apply -f k8s-master-deployment.yaml
-kubectl apply -f k8s-requester-deployment.yaml
-kubectl apply -f k8s-provider-deployment.yaml
-kubectl apply -f k8s-services.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-namespace.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-jwt-secrets.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-configmap.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-jwt-issuer-deployment.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-master-deployment.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-requester-deployment.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-provider-deployment.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-services.yaml
 
 # Step 9: Check deployment status
 kubectl get pods -n blockchain-microservices
@@ -218,7 +74,8 @@ kubectl rollout restart deployment/provider-deployment -n blockchain-microservic
 kubectl get pods -n blockchain-microservices
 
 # Step 12: Initialize database in provider pod
-kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python scripts/db_setup.py
+PROVIDER_POD=$(kubectl get pods -l app=provider-service -n blockchain-microservices -o jsonpath='{.items[0].metadata.name}')
+kubectl exec -it -n blockchain-microservices "$PROVIDER_POD" -- python scripts/db_setup.py
 
 # Step 13: Test services
 # Get external IP for provider service
@@ -240,11 +97,11 @@ curl http://localhost:5003/request/1
 # =============================================================================
 
 # Step 1: Create HPA for provider deployment
-kubectl apply -f k8s/k8s-hpa.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-hpa.yaml
 
 # Step 2: Create HPA for requester deployment
-kubectl apply -f k8s/k8s-requester-hpa.yaml
-kubectl apply -f k8s/k8s-provider-hpa.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-requester-hpa.yaml
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-provider-hpa.yaml
 
 # Step 3: Check HPA status
 kubectl get hpa -n blockchain-microservices -o wide
@@ -317,7 +174,7 @@ kubectl logs deployment/requester-deployment -n blockchain-microservices
 kubectl logs deployment/provider-deployment -n blockchain-microservices
 
 # Check pod status and details
-kubectl describe pod -l app=master-service -n blockchain-microservices
+kubectl describe deploy/master-deployment -n blockchain-microservices
 kubectl describe pod -l app=requester-service -n blockchain-microservices
 kubectl describe pod -l app=provider-service -n blockchain-microservices
 
@@ -335,13 +192,15 @@ kubectl get all -n blockchain-microservices
 # =============================================================================
 
 # Scale services
-kubectl scale deployment master-deployment --replicas=1 -n blockchain-microservices
-kubectl scale deployment requester-deployment --replicas=1 -n blockchain-microservices
-kubectl scale deployment provider-deployment --replicas=1 -n blockchain-microservices
+kubectl scale deployment master-deployment --replicas=5 -n blockchain-microservices
+kubectl scale deployment requester-deployment --replicas=10 -n blockchain-microservices
+kubectl scale deployment provider-deployment --replicas=10 -n blockchain-microservices
+kubectl scale deployment jwt-issuer-deployment --replicas=5 -n blockchain-microservices
 
 kubectl scale deployment master-deployment --replicas=0 -n blockchain-microservices
 kubectl scale deployment requester-deployment --replicas=0 -n blockchain-microservices
 kubectl scale deployment provider-deployment --replicas=0 -n blockchain-microservices
+kubectl scale deployment jwt-issuer-deployment --replicas=0 -n blockchain-microservices
 
 # Check scaling status
 kubectl get pods -n blockchain-microservices
@@ -415,18 +274,18 @@ curl http://34.44.190.251:5004/chain
 # GOOGLE FILESTORE (NFS) PERSISTENT VOLUME COMMANDS
 # =============================================================================
 
-# Step 1: Create Filestore instance in GCP Console
+# Step 1: Create Filestore instance in GCP Console (or via step 5.1 above)
 #   - Name: blockchain-filestore
 #   - Fileshare name: vol1
 #   - Region/Zone: (match your GKE nodes)
 #   - Capacity: 1TB (minimum)
-#   - Note the NFS IP address (e.g., 10.78.113.18)
+#   - Note the NFS IP address
 
 # Step 2: Create PV and PVC YAML (k8s-filestore-pv-pvc.yaml)
 #   - Use the NFS IP and export path (/vol1)
 
-# Step 3: Apply PV and PVC
-kubectl apply -f k8s-filestore-pv-pvc.yaml
+# Step 3: Apply PV and PVC (initial creation)
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-filestore-pv-pvc.yaml
 
 # Step 4: Check PV and PVC status
 kubectl get pv,pvc -n blockchain-microservices
@@ -436,8 +295,8 @@ kubectl describe pvc filestore-pvc -n blockchain-microservices
 # Step 5: Update provider deployment to use the PVC
 #   (Already done in k8s-provider-deployment.yaml)
 
-# Step 6: Redeploy provider deployment
-kubectl apply -f k8s-provider-deployment.yaml
+# Step 6: Redeploy/rollout provider deployment
+kubectl rollout restart deployment/provider-deployment -n blockchain-microservices
 
 # Step 7: Initialize the database on the shared volume (run ONCE)
 kubectl exec -it deployment/provider-deployment -n blockchain-microservices -- python scripts/db_setup.py
@@ -460,6 +319,32 @@ kubectl exec -it <provider-pod-name> -n blockchain-microservices -- cat /data/di
 kubectl delete pvc filestore-pvc -n blockchain-microservices
 kubectl delete pv filestore-pv
 
+# -----------------------------------------------------------------------------
+# UPDATE FLOW (changing Filestore IP or re-binding PVC)
+# -----------------------------------------------------------------------------
+
+# 1) Scale down provider to release the mount
+kubectl scale deployment/provider-deployment --replicas=0 -n blockchain-microservices
+
+# 2) Update PV YAML server field to current Filestore IP
+FILESTORE_IP=$(gcloud filestore instances describe blockchain-filestore --zone=us-central1-a --format='get(networks[0].ipAddresses[0])')
+echo "Filestore IP: ${FILESTORE_IP}"
+sed -i '' -e "s/^\(\s*server:\s*\).*/\1${FILESTORE_IP}/" /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-filestore-pv-pvc.yaml
+
+# 3) Delete existing PVC and PV
+kubectl delete pvc filestore-pvc -n blockchain-microservices --grace-period=0 --force
+kubectl delete pv filestore-pv --grace-period=0 --force
+
+# 4) Recreate PV/PVC
+kubectl apply -f /Users/sagargupta/BlockchainWithMicroservice/k8s/k8s-filestore-pv-pvc.yaml
+
+# 5) Wait for PVC to bind (30s timeout)
+kubectl wait --for=condition=Bound pvc/filestore-pvc -n blockchain-microservices --timeout=30s
+
+# 6) Scale provider back up and wait briefly
+kubectl scale deployment/provider-deployment --replicas=1 -n blockchain-microservices
+kubectl rollout status deploy/provider-deployment -n blockchain-microservices --timeout=30s || true
+
 # =============================================================================
 # FULL CLEANUP: DELETE CLUSTER AND FILESTORE (STOP ALL CHARGES)
 # =============================================================================
@@ -472,24 +357,20 @@ gcloud filestore instances delete blockchain-filestore --zone=us-central1-a --qu
 
 for pod in $(kubectl get pods -n blockchain-microservices -l app=master-service -o jsonpath='{.items[*].metadata.name}'); do
   echo "=== $pod ==="
-  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5002/chain
-  echo
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5002/chain | jq '.length'
 done
 
 for pod in $(kubectl get pods -n blockchain-microservices -l app=requester-service -o jsonpath='{.items[*].metadata.name}'); do
   echo "=== $pod ==="
-  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5003/chain
-  echo
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5003/chain | jq '.length'
 done
 
 for pod in $(kubectl get pods -n blockchain-microservices -l app=provider-service -o jsonpath='{.items[*].metadata.name}'); do
   echo "=== $pod ==="
-  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5004/chain
-  echo
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5004/chain | jq '.length'
 done
 
-# To deploy the latest changes
-docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-master:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-requester:latest . && docker build --platform linux/amd64 -t gcr.io/blockchain-with-microservice/blockchain-provider:latest . && docker push gcr.io/blockchain-with-microservice/blockchain-master:latest && docker push gcr.io/blockchain-with-microservice/blockchain-requester:latest && docker push gcr.io/blockchain-with-microservice/blockchain-provider:latest && kubectl rollout restart deployment/master-deployment -n blockchain-microservices && kubectl rollout restart deployment/requester-deployment -n blockchain-microservices && kubectl rollout restart deployment/provider-deployment -n blockchain-microservices && kubectl get pods -n blockchain-microservices
+PROJECT_ID=$(gcloud config get-value project --quiet) && docker build --platform linux/amd64 -t gcr.io/${PROJECT_ID}/blockchain-master:latest -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile /Users/sagargupta/BlockchainWithMicroservice && docker build --platform linux/amd64 -t gcr.io/${PROJECT_ID}/blockchain-requester:latest -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile /Users/sagargupta/BlockchainWithMicroservice && docker build --platform linux/amd64 -t gcr.io/${PROJECT_ID}/blockchain-provider:latest -f /Users/sagargupta/BlockchainWithMicroservice/Dockerfile /Users/sagargupta/BlockchainWithMicroservice && docker push gcr.io/${PROJECT_ID}/blockchain-master:latest && docker push gcr.io/${PROJECT_ID}/blockchain-requester:latest && docker push gcr.io/${PROJECT_ID}/blockchain-provider:latest
 
 kubectl logs -f deployment/provider-deployment -n blockchain-microservices
 
@@ -499,3 +380,188 @@ kubectl logs -f provider-deployment-848444bbb6-79lph -n blockchain-microservices
 kubectl get hpa -n blockchain-microservices -o wide
 
 for i in {1..500}; do echo "Request $i:"; curl -w "Response Time: %{time_total}s\n" -s http://localhost:5003/request/1 | grep -E "(message|Response Time)"; sleep 0.05; done
+
+curl http://localhost:5003/request/1
+curl -X POST http://localhost:5003/update_resource/1/high
+
+# # To get the chain
+curl http://localhost:5002/chain
+curl http://localhost:5003/chain
+curl http://localhost:5004/chain
+
+# # To get the nodes
+curl http://localhost:5002/nodes
+curl http://localhost:5003/nodes
+curl http://localhost:5004/nodes
+
+# to get the block propagation metrics
+curl http://localhost:5002/block_propagation_metrics
+curl http://localhost:5003/block_propagation_metrics
+curl http://localhost:5004/block_propagation_metrics
+
+for pod in $(kubectl get pods -n blockchain-microservices -l app=master-service -o jsonpath='{.items[*].metadata.name}'); do
+  echo "=== $pod ==="
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5002/block_propagation_metrics
+  echo
+done
+
+for pod in $(kubectl get pods -n blockchain-microservices -l app=requester-service -o jsonpath='{.items[*].metadata.name}'); do
+  echo "=== $pod ==="
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5003/block_propagation_metrics
+  echo
+done
+
+for pod in $(kubectl get pods -n blockchain-microservices -l app=provider-service -o jsonpath='{.items[*].metadata.name}'); do
+  echo "=== $pod ==="
+  kubectl exec -it $pod -n blockchain-microservices -- curl -s http://localhost:5004/block_propagation_metrics
+  echo
+done
+
+# # To add a user
+# curl -X POST http://localhost:5002/add_user \
+#      -H "Content-Type: application/json" \
+#      -d '{
+#            "id": 1,
+#            "name": "Sagar",
+#            "initial_balance": 100
+#          }'
+
+# # To add a user
+# curl -X POST http://localhost:5002/add_user \
+#      -H "Content-Type: application/json" \
+#      -d '{
+#            "id": 2,
+#            "name": "Mohit",
+#            "initial_balance": 200
+#          }'
+
+# # To transfer
+# curl -X POST http://localhost:5002/transfer \
+#      -H "Content-Type: application/json" \
+#      -d '{"from_id": 42, "to_id": 1, "amount": 2}'
+
+# # To get the balance
+# curl http://localhost:5004/request/1
+# curl http://localhost:5004/request/2
+
+# # To remove docker image
+# docker stop $(docker ps -q --filter "name=blockchainwithmicroservices") 2>/dev/null
+# docker rm   $(docker ps -a -q --filter "name=blockchainwithmicroservices") 2>/dev/null
+
+# # To start docker
+# docker-compose build --no-cache              
+# docker-compose up -d --remove-orphans
+
+# # To check the logs
+# docker compose logs -f provider_service
+
+# # To get into shell
+# docker exec -it blockchainwithmicroservice-requester_service-1 sh
+
+# # To send multiple requests
+# curl http://provider_service:5004/city/1
+# curl http://provider_service:5004/city/2
+# curl http://provider_service:5004/city/3
+
+# # To run more services
+# docker compose up --scale requester_service=3;
+# docker compose up --scale provider_service=3;
+# docker compose up --scale master_service=3;
+# docker compose up --scale master_service=3 --scale requester_service=5
+# # To get resource
+# curl http://127.0.0.1:5003/request/1
+
+# # To update resource
+# curl -X POST http://localhost:5003/update_resource/1/high
+
+# # To stop the docker
+# docker compose down
+
+# # To run the bootstrap node
+# docker exec -it 72bfc00ce90c50705155ef107544b311b084cc02f6b62186d6a3dfe3c8697d7e curl http://localhost:5003/request/1
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl -X POST http://localhost:5003/update_resource/1/high
+
+# # To get the block propagation metrics
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/block_propagation_metrics
+# curl http://localhost:5004/block_propagation_metrics
+
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5003/chain
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 curl http://localhost:5002/chain
+# curl http://localhost:5004/chain
+
+# # To check docker version
+# docker exec -it cef5f69f68a2653ea14a76610fe0316ae43ac2a5f307101e7ed9cf4a97354a44 which docker
+
+# # time it takes
+# # without blockchain between 2 nodes: 7.05 ms
+# # without blockchain between 3 nodes: 4.64 ms
+# # without blockchain between 5 nodes: 7.30 ms
+# # without blockchain between 10 nodes: 13.278
+
+# # with 1 block (2 nodes): 16.88 ms
+# # with 2 blocks (2 nodes): 24.23 ms
+# # with 3 blocks (3 nodes): 72.73 ms
+# # with 5 blocks (5 nodes): 255.73.13 ms
+# # with 10 blocks (5 nodes): 2374.79 ms
+
+# # node1 = 2 chain - 5002
+# # node2 = 2 chain
+# # node3 = 1 chain -> register -> it passes longest chain -> copy local -> 2 chain
+
+# # shouldExternalUserCanChange = true/false
+# # /customChangeToDatabase 
+
+# """
+
+# source venv/bin/activate
+# python src/intermediary.py 5004 127.0.0.1:5005
+
+# source venv/bin/activate
+# python src/intermediary.py 5005 127.0.0.1:5006
+
+# source venv/bin/activate
+# python src/intermediary.py 5006 127.0.0.1:5007
+
+# source venv/bin/activate
+# python src/intermediary.py 5007 127.0.0.1:5008
+
+# source venv/bin/activate
+# python src/intermediary.py 5008 127.0.0.1:5009
+
+# source venv/bin/activate
+# python src/intermediary.py 5009 127.0.0.1:5010
+
+# source venv/bin/activate
+# python src/intermediary.py 5010 127.0.0.1:5011
+
+# source venv/bin/activate
+# python src/intermediary.py 5011 127.0.0.1:5003
+
+# """
+
+# docker swarm leave --force
+
+# docker swarm init
+
+# docker build -t blockchainwithmicroservice_db_setup_service -f Dockerfile .
+# docker build -t blockchainwithmicroservice_master_service -f Dockerfile .
+# docker build -t blockchainwithmicroservice_requester_service -f Dockerfile .
+# docker build -t blockchainwithmicroservice_provider_service -f Dockerfile .
+
+# docker stack deploy -c docker-compose.yml blockchain_stack
+
+# docker service scale blockchain_stack_master_service=3
+
+# curl http://master_service:5002/nodes
+# curl http://requester_service:5003/nodes
+# curl http://provider_service:5004/nodes
+
+# curl http://master_service:5002/chain
+# curl http://requester_service:5003/chain
+# curl http://provider_service:5004/chain
+
+# curl http://requester_service:5003/request/1
+
+# docker service scale blockchain_stack_master_service=3
+# docker service scale blockchain_stack_requester_service=3
