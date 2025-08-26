@@ -1,13 +1,13 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: requester-hpa
+  name: master-hpa
   namespace: blockchain-microservices
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: requester-deployment
+    name: master-deployment
   minReplicas: 1
   maxReplicas: 10
   metrics:
@@ -35,4 +35,4 @@ spec:
       policies:
       - type: Percent
         value: 10
-        periodSeconds: 15 
+        periodSeconds: 15

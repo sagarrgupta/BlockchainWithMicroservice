@@ -188,24 +188,6 @@ kubectl get deployments -n blockchain-microservices
 kubectl get all -n blockchain-microservices
 
 # =============================================================================
-# SCALING COMMANDS
-# =============================================================================
-
-# Scale services
-kubectl scale deployment master-deployment --replicas=5 -n blockchain-microservices
-kubectl scale deployment requester-deployment --replicas=10 -n blockchain-microservices
-kubectl scale deployment provider-deployment --replicas=10 -n blockchain-microservices
-kubectl scale deployment jwt-issuer-deployment --replicas=5 -n blockchain-microservices
-
-kubectl scale deployment master-deployment --replicas=0 -n blockchain-microservices
-kubectl scale deployment requester-deployment --replicas=0 -n blockchain-microservices
-kubectl scale deployment provider-deployment --replicas=0 -n blockchain-microservices
-kubectl scale deployment jwt-issuer-deployment --replicas=0 -n blockchain-microservices
-
-# Check scaling status
-kubectl get pods -n blockchain-microservices
-
-# =============================================================================
 # TROUBLESHOOTING COMMANDS
 # =============================================================================
 
@@ -379,7 +361,27 @@ kubectl logs -f provider-deployment-848444bbb6-79lph -n blockchain-microservices
 
 kubectl get hpa -n blockchain-microservices -o wide
 
-for i in {1..500}; do echo "Request $i:"; curl -w "Response Time: %{time_total}s\n" -s http://localhost:5003/request/1 | grep -E "(message|Response Time)"; sleep 0.05; done
+for i in {1..50}; do echo "Request $i:"; curl -w "Response Time: %{time_total}s\n" -s http://localhost:5003/request/1 | grep -E "(message|Response Time)"; sleep 0.05; done
+
+# =============================================================================
+# SCALING COMMANDS
+# =============================================================================
+
+# Scale services
+kubectl scale deployment master-deployment --replicas=1 -n blockchain-microservices
+kubectl scale deployment requester-deployment --replicas=1 -n blockchain-microservices
+kubectl scale deployment provider-deployment --replicas=1 -n blockchain-microservices
+kubectl scale deployment jwt-issuer-deployment --replicas=1 -n blockchain-microservices
+
+kubectl scale deployment master-deployment --replicas=0 -n blockchain-microservices
+kubectl scale deployment requester-deployment --replicas=0 -n blockchain-microservices
+kubectl scale deployment provider-deployment --replicas=0 -n blockchain-microservices
+kubectl scale deployment jwt-issuer-deployment --replicas=0 -n blockchain-microservices
+
+gcloud container clusters resize blockchain-cluster --region=us-central1-a --num-nodes=1
+
+# Check scaling status
+kubectl get pods -n blockchain-microservices
 
 curl http://localhost:5003/request/1
 curl -X POST http://localhost:5003/update_resource/1/high

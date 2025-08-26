@@ -360,11 +360,7 @@ class Blockchain:
                     print(f"[update_resource] Not a provider node, skipping DB update.")
             # else: unrecognized or no contract_id → do nothing
         
-        # If this is a provider node and we received transactions, record endTime
-        if (self.peers_roles.get(self.local_node) == "provider" and 
-            block['transactions']):
-            self.endTime.append(time())
-            print(f"[PROVIDER_METRICS] Provider processed regular transactions, endTime recorded")
+        self.endTime.append(time())
 
 
 # ─── Blueprint for Core Blockchain Endpoints ─────────────────────────────────────

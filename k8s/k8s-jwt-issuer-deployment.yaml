@@ -26,7 +26,10 @@ spec:
         - name: NODE_ID
           value: "jwt-issuer-node"
         - name: VALID_KEYS
-          value: "1LIXXwwatUUuD3VCDmvL9/Yg/ceZTt0/RMfoluSlZoA=,1LIXXwwatUUuD3VCDmvL9/Yg/ceZTt0/RMfoluSlZoA="
+          valueFrom:
+            secretKeyRef:
+              name: node-api-keys
+              key: api-key-1
         - name: PYTHONUNBUFFERED
           value: "1"
         command: ["python", "-u", "src/issuer.py"]

@@ -1,13 +1,13 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: requester-hpa
+  name: jwt-issuer-hpa
   namespace: blockchain-microservices
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: requester-deployment
+    name: jwt-issuer-deployment
   minReplicas: 1
   maxReplicas: 10
   metrics:
@@ -16,13 +16,13 @@ spec:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 50
+        averageUtilization: 15
   - type: Resource
     resource:
       name: memory
       target:
         type: Utilization
-        averageUtilization: 60
+        averageUtilization: 45
   behavior:
     scaleUp:
       stabilizationWindowSeconds: 60
@@ -35,4 +35,4 @@ spec:
       policies:
       - type: Percent
         value: 10
-        periodSeconds: 15 
+        periodSeconds: 15
