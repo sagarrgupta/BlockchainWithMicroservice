@@ -1,4 +1,4 @@
-## Project description
+## Project Description
 This repository implements a decentralized, microservices-based framework for disaster resource allocation using blockchain. Services (master, requester, provider, and JWT issuer) coordinate secure token issuance, request handling, and on-chain data persistence while scaling on Google Kubernetes Engine with shared Filestore-backed storage.
 
 ## Publication
