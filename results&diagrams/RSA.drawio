@@ -1,0 +1,119 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15" version="28.0.7">
+  <diagram name="Page-1" id="zOor2vZLLFO7eu4yFkJL">
+    <mxGraphModel dx="2109" dy="1034" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-1" value="Operator" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="190" y="20" width="150" height="964" as="geometry" />
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-2" value="Blockchain Node" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="502" y="20" width="150" height="964" as="geometry" />
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-3" value="JWT Issuer" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="770" y="20" width="150" height="964" as="geometry" />
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-4" value="Master Node" style="shape=umlLifeline;perimeter=lifelinePerimeter;whiteSpace=wrap;container=1;dropTarget=0;collapsible=0;recursiveResize=0;outlineConnect=0;portConstraint=eastwest;newEdgeStyle={&quot;edgeStyle&quot;:&quot;elbowEdgeStyle&quot;,&quot;elbow&quot;:&quot;vertical&quot;,&quot;curved&quot;:0,&quot;rounded&quot;:0};size=65;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="1000" y="20" width="150" height="964" as="geometry" />
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-5" value="1. Generate API key" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-1" target="4nXSoUvJZVUqaNqMYyXN-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="345" y="123" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-6" value="2. kubectl create secret node-XYZ --from-literal=api-key=…" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-1" target="4nXSoUvJZVUqaNqMYyXN-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="345" y="171" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-7" value="3. Pod starts, mounts Secret as $API_KEY" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-2" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="764" y="219" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-8" value="4. POST /token (with $API_KEY)" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-2" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="764" y="267" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-9" value="5. Validate API key" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-3" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="985" y="315" />
+              <mxPoint x="985" y="345" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-10" value="6. Load private key" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-3" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="985" y="393" />
+              <mxPoint x="985" y="423" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-11" value="7. Generate JWT payload" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-3" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="985" y="471" />
+              <mxPoint x="985" y="501" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-12" value="8. Sign with RSA-256" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-3" target="4nXSoUvJZVUqaNqMYyXN-3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="985" y="549" />
+              <mxPoint x="985" y="579" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-13" value="9. Return JWT token" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;dashed=1;dashPattern=2 3;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-3" target="4nXSoUvJZVUqaNqMYyXN-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="767" y="627" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-14" value="10. POST /register (with JWT)" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-2" target="4nXSoUvJZVUqaNqMYyXN-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="864" y="675" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-15" value="11. Verify JWT signature" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-4" target="4nXSoUvJZVUqaNqMYyXN-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1185" y="723" />
+              <mxPoint x="1185" y="753" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-16" value="12. Check token scope" style="curved=1;dashed=1;dashPattern=2 3;endArrow=block;rounded=0;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-4" target="4nXSoUvJZVUqaNqMYyXN-4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1185" y="801" />
+              <mxPoint x="1185" y="831" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="4nXSoUvJZVUqaNqMYyXN-17" value="13. Registration response" style="verticalAlign=bottom;edgeStyle=elbowEdgeStyle;elbow=vertical;curved=0;rounded=0;dashed=1;dashPattern=2 3;endArrow=block;fillColor=#b1ddf0;strokeColor=#10739e;fontStyle=1" edge="1" parent="1" source="4nXSoUvJZVUqaNqMYyXN-4" target="4nXSoUvJZVUqaNqMYyXN-2">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="867" y="879" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,5 +1,11 @@
-# Blockchain Microservices - Kubernetes Deployment
+## Project description
+This repository implements a decentralized, microservices-based framework for disaster resource allocation using blockchain. Services (master, requester, provider, and JWT issuer) coordinate secure token issuance, request handling, and on-chain data persistence while scaling on Google Kubernetes Engine with shared Filestore-backed storage.
 
+## Publication
+- Citation: A. A. Khaleq and S. Gupta, "Decentralized Microservices-based Framework for Disaster Resource Allocation using Blockchain," 2025 3rd International Conference on Artificial Intelligence, Blockchain, and Internet of Things (AIBThings), Mt Pleasant, MI, USA, 2025, pp. 1-5, doi: 10.1109/AIBThings66987.2025.11296261. keywords: {Cloud computing;Scalability;Disasters;Microservice architectures;Real-time systems;Blockchains;Resource management;Time factors;Security;Internet of Things;blockchain;microservices;scalability;critical domain;real time systems;cloud},
+- Paper link: https://ieeexplore.ieee.org/document/11296261
+
+# Blockchain Microservices - Kubernetes Deployment
 Complete deployment guide for blockchain microservices on Google Cloud Platform using Kubernetes.
 
 ## Prerequisites
