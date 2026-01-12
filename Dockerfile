@@ -6,6 +6,10 @@ WORKDIR /app
 # Installs curl library
 RUN apt-get update && \
     apt-get install -y curl && \
+    apt-get install -y sqlite3 && \
+    apt-get install -y wget && \
+    wget -O /usr/local/bin/kubectl https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl && \
+    chmod +x /usr/local/bin/kubectl && \
     rm -rf /var/lib/apt/lists/*
 
 # 1) Install Python dependencies
@@ -14,6 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 2) Copy all of our Python code into /app
 COPY . .
+
+# Create the database when container starts
+# RUN python db_setup.py
 
 # 3) Expose the ports
 EXPOSE 5002 5003 5004

@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: master-deployment
+  namespace: blockchain-microservices
+  labels:
+    app: master-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: master-service
+  template:
+    metadata:
+      labels:
+        app: master-service
+    spec:
+      containers:
+      - name: master-service
+        image: gcr.io/blockchain-with-microservice/blockchain-master:latest
+        ports:
+        - containerPort: 5002
+        env:
+        - name: ROLE
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: MASTER_ROLE
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: MASTER_PORT
+        - name: BOOTSTRAP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: MASTER_BOOTSTRAP_HOST
+        - name: BOOTSTRAP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: MASTER_BOOTSTRAP_PORT
+        - name: MY_SERVICE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: MASTER_SERVICE_NAME
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PYTHONUNBUFFERED
+        - name: NODE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: node-api-keys
+              key: api-key-1
+        command: ["python", "-u", "src/master.py", "5002"]
+        volumeMounts:
+        - name: db-storage
+          mountPath: /data
+        - name: jwt-public-key
+          mountPath: /secrets
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /chain
+            port: 5002
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /chain
+            port: 5002
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: db-storage
+        emptyDir: {}
+      - name: jwt-public-key
+        secret:
+          secretName: jwt-issuer-key
+          items:
+          - key: public.pem
+            path: public.pem
+            mode: 0444 

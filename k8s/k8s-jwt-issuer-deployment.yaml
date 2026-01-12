@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jwt-issuer-deployment
+  namespace: blockchain-microservices
+  labels:
+    app: jwt-issuer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jwt-issuer
+  template:
+    metadata:
+      labels:
+        app: jwt-issuer
+    spec:
+      containers:
+      - name: jwt-issuer
+        image: gcr.io/blockchain-with-microservice/blockchain-master:latest
+        ports:
+        - containerPort: 8443
+        env:
+        - name: ISSUER_PORT
+          value: "8443"
+        - name: NODE_ID
+          value: "jwt-issuer-node"
+        - name: VALID_KEYS
+          valueFrom:
+            secretKeyRef:
+              name: node-api-keys
+              key: api-key-1
+        - name: PYTHONUNBUFFERED
+          value: "1"
+        command: ["python", "-u", "src/issuer.py"]
+        volumeMounts:
+        - name: jwt-keys
+          mountPath: /secrets
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8443
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+      volumes:
+      - name: jwt-keys
+        secret:
+          secretName: jwt-issuer-key
+          items:
+          - key: private.pem
+            path: private.pem
+            mode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jwt-issuer-service
+  namespace: blockchain-microservices
+  labels:
+    app: jwt-issuer
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8443
+    targetPort: 8443
+    protocol: TCP
+    name: http
+  selector:
+    app: jwt-issuer 

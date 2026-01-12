@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: provider-deployment
+  namespace: blockchain-microservices
+  labels:
+    app: provider-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: provider-service
+  template:
+    metadata:
+      labels:
+        app: provider-service
+    spec:
+      containers:
+      - name: provider-service
+        image: gcr.io/blockchain-with-microservice/blockchain-provider:latest
+        ports:
+        - containerPort: 5004
+        env:
+        - name: NODE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: node-api-keys
+              key: api-key-1
+        - name: JWT_ISSUER_URL
+          value: "http://jwt-issuer-service:8443"
+        - name: ROLE
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_ROLE
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_PORT
+        - name: BOOTSTRAP_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_BOOTSTRAP_HOST
+        - name: BOOTSTRAP_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_BOOTSTRAP_PORT
+        - name: MY_SERVICE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PROVIDER_SERVICE_NAME
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: PYTHONUNBUFFERED
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: PYTHONUNBUFFERED
+        command: ["python", "-u", "src/provider.py", "5004"]
+        volumeMounts:
+        - name: db-storage
+          mountPath: /data
+        - name: jwt-public-key
+          mountPath: /secrets
+          readOnly: true
+        livenessProbe:
+          httpGet:
+            path: /chain
+            port: 5004
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /chain
+            port: 5004
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: db-storage
+        persistentVolumeClaim:
+          claimName: filestore-pvc
+      - name: jwt-public-key
+        secret:
+          secretName: jwt-issuer-key
+          items:
+          - key: public.pem
+            path: public.pem
+            mode: 0444 

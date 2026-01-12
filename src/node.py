@@ -1,0 +1,1353 @@
+# node.py
+import sys, threading, requests, hashlib, json
+from time import time, sleep
+from urllib.parse import urlparse
+from flask  import Flask, request, jsonify, Blueprint
+import os
+import socket
+import jwt
+
+# ─── Bootstrap Settings ─────────────────────────────────────────────
+BOOTSTRAP_PORT = int(os.environ.get("BOOTSTRAP_PORT", "5002"))
+BOOTSTRAP_HOST = os.getenv("BOOTSTRAP_HOST", "127.0.0.1")
+BOOTSTRAP_ADDRESS = f"{BOOTSTRAP_HOST}:{BOOTSTRAP_PORT}"
+
+# ─── JWT Token Cache ───────────────────────────────────────────────
+_jwt_token_cache = {"token": None, "expires_at": 0}
+
+# ─── Blockchain Class ──────────────────────────────────────────────
+class Blockchain:
+    def __init__(self):
+        self.master_peers = set()      # set of all known master peer addresses (excluding ourselves)
+        self.chain = []
+        self.current_transactions = []
+        self.nodes = set()             # peer addresses (host:port)
+        self.peers_roles = {}          # peer_address → role string
+        self.local_node = None         # this node's own address (host:port)
+        self.bootstrap_node = None     # will store BOOTSTRAP_HOST
+        self.mining_in_progress = False
+        self.users = {}
+        # ─── Block Propagation State ─────────────────────────────────────────────
+        self.startTime = []
+        self.chainSyncedTime = []
+        self.blockMinedTime = []
+        self.blockPropagationTime = []
+        self.dataReceivedAtProviderTime = []
+        self.endTime = []
+        # JWT Configuration
+        self.public_key_path = "/secrets/public.pem"
+        # Creating the genesis block
+        self.new_block(previous_hash='1', proof=100, mined_by="Genesis", transactions=[], timestamp=time())
+
+    # ─── NODE REGISTRATION / ROLES ───────────────────────────────────────────────
+    def register_node(self, address, is_local=False):
+        """
+        Register a new node by its address. If is_local=True, that is this node.
+        Otherwise, add to the peer set (excluding our own address).
+        """
+        parsed = urlparse(address if address.startswith('http') else f"http://{address}")
+        node_address = parsed.netloc
+
+        if is_local:
+            self.local_node = node_address
+            print(f"Registered local node as: {self.local_node}")
+        else:
+            if node_address != self.local_node and node_address not in self.nodes:
+                self.nodes.add(node_address)
+                print(f"Added remote node: {node_address}")
+
+    def set_peer_role(self, address, role):
+        """Record a peer's role (e.g. 'provider', 'requester', 'user_contract', 'master')."""
+        self.peers_roles[address] = role
+        # Maintain master_peers set
+        if role == "master" and address != self.local_node:
+            self.master_peers.add(address)
+        elif address in self.master_peers:
+            self.master_peers.discard(address)
+
+    def get_node_addresses(self):
+        """Return a list of all peer addresses (excluding ourselves)."""
+        return [n for n in self.nodes if n != self.local_node]
+
+    def load_public_key(self):
+        """Load the RSA public key for JWT verification."""
+        try:
+            with open(self.public_key_path, 'r') as f:
+                return f.read()
+        except FileNotFoundError:
+            print(f"WARNING: Public key not found at {self.public_key_path}")
+            return None
+        except Exception as e:
+            print(f"ERROR: Failed to load public key: {e}")
+            return None
+
+    def verify_jwt_token(self, token, required_scope=None):
+        """
+        Verify JWT token for node registration.
+        
+        Args:
+            token (str): JWT token from Authorization header
+            required_scope (str): Required scope for the operation
+            
+        Returns:
+            dict: Decoded payload if valid, None if invalid
+        """
+        try:
+            public_key = self.load_public_key()
+            if not public_key:
+                return None
+            
+            # Decode and verify JWT
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=['RS256'],
+                audience='blockchain-master',
+                issuer='blockchain-node-issuer'
+            )
+            
+            # Check scope if required
+            if required_scope:
+                token_scopes = payload.get('scope', '').split()
+                if required_scope not in token_scopes:
+                    print(f"JWT token missing required scope: {required_scope}")
+                    return None
+            
+            return payload
+            
+        except jwt.ExpiredSignatureError:
+            print("JWT token expired")
+            return None
+        except jwt.InvalidTokenError as e:
+            print(f"Invalid JWT token: {e}")
+            return None
+        except Exception as e:
+            print(f"JWT verification error: {e}")
+            return None
+
+    def require_jwt_auth(self, required_scope=None):
+        """
+        Decorator helper for JWT authentication.
+        
+        Args:
+            required_scope (str): Required scope for the operation
+            
+        Returns:
+            dict: JWT payload if valid, None if invalid
+        """
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return None
+        
+        jwt_token = auth_header.split(' ')[1]
+        return self.verify_jwt_token(jwt_token, required_scope)
+
+    # ─── CONSENSUS / VALIDATION ─────────────────────────────────────────────────
+    def valid_chain(self, chain):
+        """
+        Check that a given chain is valid:
+        - Each block's previous_hash matches the SHA-256 of the prior block.
+        - Each proof matches valid_proof(prev_proof, proof).
+        """
+        if not chain:
+            return False
+
+        last_block = chain[0]
+        idx = 1
+        while idx < len(chain):
+            block = chain[idx]
+            # Check previous_hash:
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+            # Check proof of work:
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+
+            last_block = block
+            idx += 1
+
+        return True
+
+    def resolve_conflicts(self):
+        """
+        Consensus: query all peers'/chain. If a longer valid chain is found,
+        replace our own. Return True if replaced, False otherwise.
+        """
+        new_chain = None
+        max_length = len(self.chain)
+
+        # Query bootstrap first if present
+        nodes_to_query = list(self.nodes)
+        if self.bootstrap_node in nodes_to_query:
+            nodes_to_query.remove(self.bootstrap_node)
+            nodes_to_query.insert(0, self.bootstrap_node)
+
+        for node_addr in nodes_to_query:
+            if node_addr == self.local_node:
+                continue
+            try:
+                host_port = get_pod_host_port(node_addr)
+                r = requests.get(f"http://{host_port}/chain", timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    length = data.get('length')
+                    chain = data.get('chain')
+                    if length and chain and length > max_length and self.valid_chain(chain):
+                        max_length = length
+                        new_chain = chain
+            except requests.exceptions.RequestException:
+                continue
+
+        if new_chain:
+            self.chain = new_chain
+            print(f"Chain replaced with longer chain of length {len(new_chain)}")
+            return True
+
+        return False
+
+    # ─── BLOCK & TRANSACTION MANAGEMENT ────────────────────────────────────────
+    def new_block(self, proof, previous_hash=None, mined_by="Unknown", transactions=None, timestamp=None):
+        """
+        Create a new block in the blockchain:
+        - proof: the proof-of-work found
+        - previous_hash: hash of previous block (optional)
+        - mined_by: identifier of miner
+        - transactions: list of blockTransactionData dicts
+        - timestamp: time of block mined
+        """
+        block = {
+            'index': len(self.chain) + 1,
+            'timestamp': timestamp if timestamp is not None else time(),
+            'transactions': transactions if transactions is not None else self.current_transactions.copy(),
+            'proof': proof,
+            'previous_hash': previous_hash or self.hash(self.chain[-1]),
+            'mined_by': mined_by
+        }
+        self.current_transactions = []
+        self.chain.append(block)
+        self.apply_contracts(block)
+        return block
+
+    def new_transaction(self, sender, recipient, contract_id=None, contract_payload=None, requested_user_id=None):
+        """
+        Add a new transaction to the list of pending transactions. If
+        contract_id is provided, then apply_contracts will pick it up later.
+        :param sender: <str> e.g. "user_service_127.0.0.1:5002"
+        :param recipient: <str> (not used for data contracts, but we fill 'all')
+        :param contract_id: <str> one of "add_user", "transfer", etc.
+        :param contract_payload: <dict> arbitrary contract data
+        :return: <int> index of the block that will hold this tx (i.e. last_block.index + 1)
+        """
+        tx = {
+            'sender': sender,
+            'recipient': recipient
+        }
+        if contract_id:
+            tx['contract_id'] = contract_id
+            tx['contract_payload'] = contract_payload or {}
+        
+        if requested_user_id:
+            tx['requested_user_id'] = requested_user_id
+
+        self.current_transactions.append(tx)
+        return self.last_block['index'] + 1
+
+    @property
+    def last_block(self):
+        return self.chain[-1]
+
+    # ─── PROOF‐OF‐WORK ──────────────────────────────────────────────────────────
+    def proof_of_work(self, last_proof):
+        """
+        Simple PoW: find a number 'proof' such that SHA256(str(last_proof)+str(proof))
+        starts with four leading zeros.
+        """
+        proof = 0
+        while not self.valid_proof(last_proof, proof):
+            proof += 1
+        return proof
+
+    @staticmethod
+    def valid_proof(last_proof, proof):
+        """
+        Check if SHA256(str(last_proof) + str(proof)) has four leading zeros.
+        """
+        guess = f'{last_proof}{proof}'.encode()
+        guess_hash = hashlib.sha256(guess).hexdigest()
+        return guess_hash[:1] == "0"
+
+    # ─── HASHING ────────────────────────────────────────────────────────────────
+    @staticmethod
+    def hash(block):
+        """
+        Creates a SHA-256 hash of a block (dictionary). We must sort keys
+        to make sure that identical blocks always produce the same hash.
+        """
+        block_string = json.dumps(block, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
+
+    # ─── UTILITY: Return chain as JSON (for /chain endpoint) ─────────────────
+    def to_dict(self):
+        return {
+            'chain': self.chain,
+            'length': len(self.chain)
+        }
+
+    # ─── «SMART CONTRACT» HANDLER ────────────────────────────────────────────────
+    def apply_contracts(self, block):
+        """
+        For each transaction in the newly‐appended block, check if it has a
+        'contract_id'. If so, dispatch to the corresponding on‐chain logic:
+          - "update_resource_allocation"
+        
+        Also track metrics for provider nodes when they receive any transactions.
+        """
+        print(f"[DEBUG] apply_contracts called with {len(block.get('transactions', []))} transactions")
+        print(f"[DEBUG] local_node: {self.local_node}")
+        print(f"[DEBUG] peers_roles: {self.peers_roles}")
+        print(f"[DEBUG] is_provider: {self.peers_roles.get(self.local_node) == 'provider'}")
+        
+        for tx in block['transactions']:
+            cid = tx.get('contract_id', "")
+            payload = tx.get('contract_payload', {})
+
+            if cid == "update_resource_allocation":
+                # Only provider nodes should update the DB
+                if self.peers_roles.get(self.local_node, None) == payload.get("authority"):
+                    city_id = payload.get("city_id")
+                    risk_level = payload.get("risk_level")
+                    # Map risk levels to resource amounts
+                    resource_map = {
+                        "low": 100,
+                        "medium": 200,
+                        "high": 300,
+                        "veryHigh": 400,
+                        "Very High": 400
+                    }
+                    if not city_id or not risk_level:
+                        print(f"[update_resource] Missing city_id or risk_level in payload: {payload}")
+                        continue
+                    try:
+                        import sqlite3
+                        db_path = "/data/disaster_resources.db"
+                        if not os.path.exists(db_path):
+                            print(f"[update_resource] DB not found at {db_path}")
+                            continue
+                        conn = sqlite3.connect(db_path)
+                        cursor = conn.cursor()
+                        # Update only the risk level and resources_allocated
+                        rl_key = risk_level.lower() if risk_level.lower() in resource_map else risk_level
+                        resources_allocated = resource_map.get(rl_key, None)
+                        if resources_allocated is None:
+                            print(f"[update_resource] Invalid risk_level: {risk_level}")
+                            conn.close()
+                            continue
+                        cursor.execute('''
+                            UPDATE disaster_resources 
+                            SET resources_allocated = ?, disaster_risk_level = ?
+                            WHERE city_id = ?
+                        ''', (resources_allocated, risk_level, city_id))
+                        if cursor.rowcount == 0:
+                            print(f"[update_resource] City not found: {city_id}")
+                        else:
+                            print(f"[update_resource] Updated city_id {city_id} to risk_level {risk_level}")
+                        conn.commit()
+                        conn.close()
+                        print(f"[PROVIDER_METRICS] Database update completed, endTime recorded")
+                    except Exception as e:
+                        print(f"[update_resource] DB error: {e}")
+                else:
+                    print(f"[update_resource] Not a provider node, skipping DB update.")
+            # else: unrecognized or no contract_id → do nothing
+        
+        self.endTime.append(time())
+
+
+# ─── Blueprint for Core Blockchain Endpoints ─────────────────────────────────────
+blockchain_bp = Blueprint('blockchain_bp', __name__)
+bc = None  # Will be set once we instantiate Blockchain() in BlockchainNode
+
+@blockchain_bp.route('/nodes', methods=['GET'])
+def list_nodes():
+    """
+    Return a list of peers this node currently knows about,
+    each entry: { "address": "<host:port>", "role": "<role>" }.
+    Only include peers that are still in bc.nodes (i.e., live peers).
+    """
+    peers_info = []
+    for addr in bc.get_node_addresses():
+        if addr == bc.local_node:
+            continue  # Exclude self, just in case
+        if addr not in bc.nodes:
+            continue  # Exclude stale peers
+        role = bc.peers_roles.get(addr, "unknown")
+        peers_info.append({"address": addr, "role": role})
+    return jsonify({'peers': peers_info}), 200
+
+
+@blockchain_bp.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    """
+    Expect JSON: { "nodes": ["http://host:port", ...], "role": "<string>", "is_local": <bool> }.
+    Add each node to bc.nodes, record its role if provided, then return ALL known peers
+    (including ourselves) as { "address": "<host:port>", "role": "<role>" }.
+    
+    JWT Authentication: Requires Authorization header with valid JWT token.
+    """
+    # JWT Authentication - MANDATORY
+    payload = bc.require_jwt_auth(required_scope='blockchain:register')
+    if not payload:
+        return jsonify({"error": "Missing or invalid JWT token with 'blockchain:register' scope"}), 401
+    
+    node_id = payload.get('sub', 'unknown')
+    print(f"Registering node with JWT: {node_id}")
+    
+    values = request.get_json()
+    if not values or 'nodes' not in values:
+        return "Error: supply a JSON with 'nodes'", 400
+
+    role = values.get('role', None)
+    is_local = values.get('is_local', False)
+    nodes = values.get('nodes')
+
+    # 1) Register each incoming node and record its role
+    for node_url in nodes:
+        parsed = urlparse(node_url)
+        node_addr = parsed.netloc
+        if is_local or node_addr != bc.local_node:
+            bc.register_node(node_addr, is_local=is_local)
+            if role:
+                bc.set_peer_role(node_addr, role)
+                
+    # 2) Build response list of ALL known peers (ourselves + others)
+    peer_list = []
+    if bc.local_node:
+        peer_list.append({
+            "address": bc.local_node,
+            "role": bc.peers_roles.get(bc.local_node, "unknown")
+        })
+    for addr in bc.get_node_addresses():
+        peer_list.append({
+            "address": addr,
+            "role": bc.peers_roles.get(addr, "unknown")
+        })
+
+    return jsonify({"message": "Nodes registered", "peers": peer_list}), 201
+
+
+@blockchain_bp.route('/receive_block', methods=['POST'])
+def receive_block():
+    """
+    Accepts a block with 'timestamp' and 'transactions' fields (plus others).
+    Validates and appends if valid.
+    
+    JWT Authentication: Requires valid JWT token with 'blockchain:receive_block' scope.
+    """
+    # JWT Authentication
+    payload = bc.require_jwt_auth(required_scope='blockchain:receive_block')
+    if not payload:
+        return jsonify({"error": "Invalid or missing JWT token with 'blockchain:receive_block' scope"}), 401
+    
+    node_id = payload.get('sub', 'unknown')
+    print(f"Receiving block from authenticated node: {node_id}")
+    
+    data = request.get_json()
+    block = data.get('block')
+    if not block:
+        return "Invalid data", 400
+
+    required_fields = ['index','timestamp','transactions','proof','previous_hash','mined_by']
+    if not all(k in block for k in required_fields):
+        return "Missing block fields", 400
+
+    last = bc.last_block
+    if block['index'] == last['index'] + 1:
+        # Validate previous_hash and proof
+        if block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
+            # If the current node is provider role, then add endTime logic
+            if bc.peers_roles.get(bc.local_node) == "provider":
+                bc.dataReceivedAtProviderTime.append(time())
+                
+            bc.chain.append(block)
+            bc.apply_contracts(block)
+
+            # --- Master node: gossip only to other master nodes ---
+            if bc.peers_roles.get(bc.local_node) == "master":
+                jwt_token = get_jwt_token_for_node()
+                headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+                for peer in bc.master_peers:
+                    try:
+                        host_port = get_pod_host_port(peer)
+                        requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=2)
+                    except:
+                        pass
+            else:
+                # Non-master: propagate to all peers as before
+                jwt_token = get_jwt_token_for_node()
+                headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+                for peer in bc.get_node_addresses():
+                    try:
+                        host_port = get_pod_host_port(peer)
+                        requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=2)
+                    except:
+                        pass
+            return jsonify({"message": "Block accepted"}), 201
+        else:
+            # If block cannot be appended, try to sync with all master peers and retry
+            print("[RECEIVE_BLOCK] Block could not be appended, attempting to sync with master peers.")
+            longest_chain = bc.chain
+            for master_peer in bc.master_peers:
+                try:
+                    host_port = get_pod_host_port(master_peer)
+                    r = requests.get(f"http://{host_port}/chain", timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        length = data.get('length')
+                        chain = data.get('chain')
+                        if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                            longest_chain = chain
+                except Exception as e:
+                    print(f"[RECEIVE_BLOCK] Error syncing with master peer {master_peer}: {e}")
+            bc.chain = longest_chain.copy()
+            # Try to append the block again
+            last = bc.last_block
+            if block['index'] == last['index'] + 1 and block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
+                bc.chain.append(block)
+                bc.apply_contracts(block)
+                return jsonify({"message": "Block accepted after sync"}), 201
+            else:
+                return jsonify({"error": "Invalid block, even after sync"}), 400
+    elif block['index'] > last['index'] + 1:
+        # Automatically sync with master peers and retry
+        print(f"[RECEIVE_BLOCK] Block index {block['index']} too high, syncing with master peers.")
+        longest_chain = bc.chain
+        
+        # First try master peers
+        for master_peer in bc.master_peers:
+            try:
+                host_port = get_pod_host_port(master_peer)
+                r = requests.get(f"http://{host_port}/chain", timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    chain = data.get('chain')
+                    if chain and len(chain) >= block['index'] and bc.valid_chain(chain):
+                        longest_chain = chain
+                        print(f"[RECEIVE_BLOCK] Found suitable chain from master peer {master_peer}")
+                        break
+            except Exception as e:
+                print(f"[RECEIVE_BLOCK] Error syncing with master peer {master_peer}: {e}")
+        
+        # If no suitable master chain found, try all peers
+        if len(longest_chain) < block['index']:
+            for peer in bc.get_node_addresses():
+                if peer in bc.master_peers:  # Skip master peers already checked
+                    continue
+                try:
+                    host_port = get_pod_host_port(peer)
+                    r = requests.get(f"http://{host_port}/chain", timeout=5)
+                    if r.status_code == 200:
+                        data = r.json()
+                        chain = data.get('chain')
+                        if chain and len(chain) >= block['index'] and bc.valid_chain(chain):
+                            longest_chain = chain
+                            print(f"[RECEIVE_BLOCK] Found suitable chain from peer {peer}")
+                            break
+                except Exception as e:
+                    print(f"[RECEIVE_BLOCK] Error syncing with peer {peer}: {e}")
+        
+        bc.chain = longest_chain.copy()
+        
+        # Now try to append the block again
+        last = bc.last_block
+        if block['index'] == last['index'] + 1 and block['previous_hash'] == bc.hash(last) and bc.valid_proof(last['proof'], block['proof']):
+            bc.chain.append(block)
+            bc.apply_contracts(block)
+            print(f"[RECEIVE_BLOCK] Block {block['index']} accepted after sync")
+            return jsonify({"message": "Block accepted after sync"}), 201
+        else:
+            print(f"[RECEIVE_BLOCK] Block {block['index']} still invalid after sync")
+            return jsonify({"error": "Block index too high, please sync"}), 409
+    else:
+        return jsonify({"message": "Block already exists or is old"}), 200
+
+
+@blockchain_bp.route('/chain', methods=['GET'])
+def full_chain():
+    """
+    Return our local chain as JSON:
+    { "chain": [{"timestamp":..., "transactions": [...]}, ...], "length": <int> }
+    """
+    return jsonify(bc.to_dict()), 200
+
+# --- New: Lightweight chain summary endpoint ---
+@blockchain_bp.route('/chain/summary', methods=['GET'])
+def chain_summary():
+    """
+    Return only the last block hash and chain length for efficient sync.
+    { "last_hash": <str>, "length": <int> }
+    """
+    if not bc.chain:
+        return jsonify({"last_hash": None, "length": 0}), 200
+    last_block = bc.chain[-1]
+    last_hash = bc.hash(last_block)
+    return jsonify({"last_hash": last_hash, "length": len(bc.chain)}), 200
+    # chain_summary = [{
+    #     "timestamp": block["timestamp"],
+    #     "transactions": block["transactions"]
+    # } for block in bc.chain]
+    # return jsonify({"chain": chain_summary, "length": len(bc.chain)}), 200
+
+
+@blockchain_bp.route('/sync', methods=['GET'])
+def sync_chain():
+    """
+    Query all peers'/chain endpoints.
+    If any peer has a longer valid chain, adopt it and return 200.
+    Otherwise return 200 saying "up to date."
+    
+    JWT Authentication: Requires valid JWT token with 'blockchain:sync' scope.
+    """
+    # JWT Authentication
+    payload = bc.require_jwt_auth(required_scope='blockchain:sync')
+    if not payload:
+        return jsonify({"error": "Invalid or missing JWT token with 'blockchain:sync' scope"}), 401
+    
+    node_id = payload.get('sub', 'unknown')
+    print(f"Syncing chain from authenticated node: {node_id}")
+    replaced = False
+    longest_chain = bc.chain
+
+    # First try master peers for sync
+    for peer in bc.master_peers:
+        try:
+            host_port = get_pod_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
+            if r.status_code == 200:
+                data = r.json()
+                length = data.get('length')
+                chain = data.get('chain')
+                if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                    longest_chain = chain
+                    replaced = True
+                    print(f"[SYNC] Found longer chain from master peer {peer}: {length} blocks")
+        except requests.exceptions.RequestException:
+            continue
+
+    # If no master peer had a longer chain, try other peers
+    if not replaced:
+        for peer in bc.get_node_addresses():
+            if peer in bc.master_peers:  # Skip master peers already checked
+                continue
+            try:
+                host_port = get_pod_host_port(peer)
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    length = data.get('length')
+                    chain = data.get('chain')
+                    if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                        longest_chain = chain
+                        replaced = True
+                        print(f"[SYNC] Found longer chain from peer {peer}: {length} blocks")
+            except requests.exceptions.RequestException:
+                continue
+
+    if replaced:
+        bc.chain = longest_chain.copy()
+        return jsonify({"message": "Chain replaced", "new_length": len(longest_chain)}), 200
+
+    return jsonify({"message": "Our chain is up to date", "length": len(longest_chain)}), 200
+
+
+@blockchain_bp.route('/mine', methods=['GET'])
+def mine():
+    """
+    1) Sync with all peers (pull their /chain).  
+    2) Proof-of-Work on our tip.  
+    3) new_block(proof) → apply_contracts(block) → broadcast.  
+    4) Return the newly mined block.
+    
+    JWT Authentication: Requires valid JWT token with 'blockchain:mine' scope.
+    """
+    # JWT Authentication
+    payload = bc.require_jwt_auth(required_scope='blockchain:mine')
+    if not payload:
+        return jsonify({"error": "Invalid or missing JWT token with 'blockchain:mine' scope"}), 401
+    
+    node_id = payload.get('sub', 'unknown')
+    print(f"Mining block from authenticated node: {node_id}")
+    # Step 1: Sync with master peers first, then regular peers if needed
+    longest_chain = bc.chain
+    sync_sources = list(bc.master_peers) if bc.master_peers else bc.get_node_addresses()
+    for peer in sync_sources:
+        try:
+            host_port = get_pod_host_port(peer)
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
+            if r.status_code == 200:
+                data = r.json()
+                length = data.get('length')
+                chain  = data.get('chain')
+                if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                    longest_chain = chain
+        except:
+            continue
+    bc.chain = longest_chain.copy()
+
+    # Step 2: Proof-of-Work
+    last_proof = bc.last_block['proof']
+    proof = bc.proof_of_work(last_proof)
+
+    # Step 3: Forge new block
+    # Use the local node address for mined_by (PORT may not be defined here)
+    mined_by = f"node_{bc.local_node}" if bc.local_node else "node_unknown"
+    new_block = bc.new_block(proof, mined_by=mined_by)
+
+    # Step 4: Broadcast: first to master peers, then to other peers
+    master_peers = list(bc.master_peers)
+    other_peers = [p for p in bc.get_node_addresses() if p not in master_peers]
+    
+    # Get JWT token for authentication with retry
+    jwt_token = get_jwt_token_with_retry()
+    headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+    
+    for peer in master_peers:
+        try:
+            host_port = get_pod_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
+        except:
+            pass
+    for peer in other_peers:
+        try:
+            host_port = get_pod_host_port(peer)
+            requests.post(f"http://{host_port}/receive_block", json={'block': new_block}, headers=headers, timeout=2)
+        except:
+            pass
+
+    return jsonify({
+        "message": "New block forged",
+        "block": new_block,
+        "chain_length": len(bc.chain)
+    }), 200
+
+
+@blockchain_bp.route('/block_propagation_metrics', methods=['GET'])
+def block_propagation_metrics_endpoint():
+    """
+    Return block propagation metrics for monitoring.
+    
+    Public endpoint (no JWT required).
+    """
+    # JWT requirement removed per deployment needs
+    
+    def avg(arr):
+        return sum(arr) / len(arr) if arr else 0
+
+    metrics = {
+        "startTime_avg": (avg(bc.startTime)) * 1000,
+        "chainSyncedTime_avg": (avg(bc.chainSyncedTime)) * 1000,
+        "blockMinedTime_avg": (avg(bc.blockMinedTime)) * 1000,
+        "blockPropagationTime_avg": (avg(bc.blockPropagationTime)) * 1000,
+        "dataReceivedAtProviderTime_avg": (avg(bc.dataReceivedAtProviderTime)) * 1000,
+        "endTime_avg": (avg(bc.endTime)) * 1000
+    }
+
+    # Reset the arrays after retrieving the values
+    bc.startTime.clear()
+    bc.chainSyncedTime.clear()
+    bc.blockMinedTime.clear()
+    bc.blockPropagationTime.clear()
+    bc.dataReceivedAtProviderTime.clear()
+    bc.endTime.clear()
+
+    return jsonify(metrics), 200
+
+@blockchain_bp.route('/master_peers', methods=['GET'])
+def list_master_peers():
+    """
+    Return a list of current master peers this node knows about.
+    Each entry: { "address": "<host:port>", "role": "master" }
+    Only include master peers that are still in bc.nodes (i.e., live peers).
+    """
+    master_peers_info = []
+    for addr in bc.master_peers:
+        if addr in bc.nodes:
+            master_peers_info.append({"address": addr, "role": "master"})
+    return jsonify({'master_peers': master_peers_info}), 200
+
+# ─── BlockchainNode Wrapper ─────────────────────────────────────────────────────
+class BlockchainNode:
+    """
+    Wraps a Flask app into a P2P/Blockchain node.
+    Decides if we're bootstrap (first on 5002) or a normal node.
+    Registers with bootstrap if needed. Registers core P2P endpoints.
+    """
+
+    def __init__(self, app: Flask, desired_port: int, role: str):
+        global bc
+
+        # Step 1: Check if someone is listening on port 5002
+        requested_port = desired_port
+        # Use MY_SERVICE_NAME env var if set, else fallback to BOOTSTRAP_HOST, else default
+        local_hostname = os.environ.get("MY_SERVICE_NAME")
+        if not local_hostname:
+            local_hostname = os.environ.get("BOOTSTRAP_HOST", "localhost")
+            # Fallback for legacy envs
+            if "ROLE" in os.environ:
+                role = os.environ["ROLE"].lower()
+                if role == "master":
+                    local_hostname = "master_service"
+                elif role == "requester":
+                    local_hostname = "requester_service"
+                elif role == "provider":
+                    local_hostname = "provider_service"
+        # Add pod identity (prefer Kubernetes Downward API envs) for uniqueness and direct addressing
+        container_id = socket.gethostname()
+        pod_ip = os.environ.get("POD_IP")
+        if not pod_ip:
+            try:
+                pod_ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                pod_ip = "127.0.0.1"
+        pod_name = os.environ.get("POD_NAME", container_id)
+        # Register using pod IP to enable direct pod-to-pod communication
+        requested_address = f"{pod_ip}:{requested_port}:{pod_name}"
+
+        max_retries = 30
+        node_exists_at_5002 = False
+        # Only wait for master if our role is NOT master
+        if role != "master":
+            for attempt in range(max_retries):
+                try:
+                    host_port = get_pod_host_port(BOOTSTRAP_ADDRESS)
+                    r = requests.get(f"http://{host_port}/chain", timeout=2)
+                    if r.status_code == 200:
+                        node_exists_at_5002 = True
+                        break
+                except requests.exceptions.RequestException:
+                    pass
+                print(f"[BOOTSTRAP WAIT] Waiting for master at {BOOTSTRAP_ADDRESS}... ({attempt+1}/{max_retries})", flush=True)
+                sleep(2)
+
+        PORT = requested_port
+        MY_ADDRESS = requested_address
+        IS_BOOTSTRAP = False
+        longest_chain = None
+        # New logic: If this is a master node, try to find any existing master chains
+        if role == "master":
+            # Try to discover all master nodes via DNS (service discovery)
+            # socket and os are already imported at the top
+            # Try to resolve all A records for the master service name
+            master_service_name = os.environ.get("MY_SERVICE_NAME", "master_service")
+            try:
+                # This will return all IPs for the service (all replicas)
+                master_ips = socket.gethostbyname_ex(master_service_name)[2]
+            except Exception:
+                master_ips = []
+            found_chain = False
+            max_length = 0
+            for ip in master_ips:
+                if ip == socket.gethostbyname(socket.gethostname()):
+                    continue  # skip self
+                try:
+                    url = f"http://{ip}:{requested_port}/chain"
+                    r = requests.get(url, timeout=2)
+                    if r.status_code == 200:
+                        data = r.json()
+                        chain = data.get('chain')
+                        if chain and len(chain) > max_length:
+                            longest_chain = chain
+                            max_length = len(chain)
+                            found_chain = True
+                except Exception:
+                    continue
+            if found_chain:
+                print(f"[MASTER BOOTSTRAP] Found existing master chain of length {max_length}. Joining it.")
+            else:
+                print(f"[MASTER BOOTSTRAP] No existing master chain found. Bootstrapping new chain.")
+                IS_BOOTSTRAP = True
+        else:
+            if node_exists_at_5002:
+                print(f"Detected existing node on 5002. Binding to port {PORT} and registering.")
+            else:
+                IS_BOOTSTRAP = True
+                print(f"No node on 5002. Becoming the first node on {MY_ADDRESS}")
+
+        # Step 2: Instantiate our Blockchain, register ourselves, set role
+        bc = Blockchain()
+        bc.register_node(MY_ADDRESS, is_local=True)
+        bc.set_peer_role(MY_ADDRESS, role)
+        bc.bootstrap_node = BOOTSTRAP_HOST
+        if longest_chain:
+            bc.chain = longest_chain
+
+        self.IS_BOOTSTRAP = IS_BOOTSTRAP
+        self.MY_ADDRESS = MY_ADDRESS
+        self.PORT = PORT
+        self.role = role  # e.g. "provider", "requester", or "user_contract"
+
+        # Step 3: If not bootstrap, register with bootstrap
+        if not IS_BOOTSTRAP:
+            self.register_with_peer(BOOTSTRAP_ADDRESS)
+            try:
+                host_port = get_pod_host_port(BOOTSTRAP_ADDRESS)
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    chain = data.get('chain')
+                    bc.chain = chain
+                    print(f"Synced chain from bootstrap node ({len(chain)} blocks)")
+            except Exception as e:
+                print(f"Could not sync chain from bootstrap: {e}")
+        else:
+            print("🛠️ This node IS acting as the bootstrap.")
+
+        # Step 4: Register the core P2P endpoints and start peer gossip
+        app.register_blueprint(blockchain_bp)
+        print("Registered blockchain P2P endpoints on Flask app.")
+
+        threading.Thread(target=self.peer_gossip_loop, daemon=True).start()
+
+        # Automatic chain sync for masters only
+        if self.role == "master":
+            threading.Thread(target=self.periodic_chain_sync, daemon=True).start()
+
+        # Expose app and port for others to read
+        self.app = app
+
+    def register_with_peer(self, peer_address: str):
+        """
+        Tell peer_address "I exist at MY_ADDRESS with role=self.role."
+        Peer will add me and return its own peer list (with roles), which I merge.
+        """
+        try:
+            payload = {
+                "nodes": [f"http://{self.MY_ADDRESS}"],
+                "role": self.role,
+                "is_local": False
+            }
+            jwt_token = get_jwt_token_with_retry()
+            print(f"[DEBUG] Using JWT for registration: {jwt_token}")
+            if not jwt_token:
+                print("Could not obtain JWT token, registration aborted.")
+                return
+            headers = {
+                "Authorization": f"Bearer {jwt_token}",
+                "Content-Type": "application/json"
+            }
+            print(f"[DEBUG] Registering with peer {peer_address} using JWT...")
+            r = requests.post(f"http://{peer_address}/nodes/register", json=payload, headers=headers, timeout=3)
+            print(f"[DEBUG] Registration response: {r.status_code} {r.text}")
+            if r.status_code == 201:
+                returned_peers = r.json().get("peers", [])
+                for pinfo in returned_peers:
+                    addr = pinfo.get("address")
+                    role = pinfo.get("role", "unknown")
+                    bc.register_node(addr, is_local=False)
+                    bc.set_peer_role(addr, role)
+                print(f"Registered with peer at {peer_address}.  Peer returned {len(returned_peers)} peers.")
+            else:
+                print(f"Peer at {peer_address} responded {r.status_code} {r.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Could not register with peer at {peer_address} (timeout or connection error): {e}")
+
+    def peer_gossip_loop(self):
+        """
+        Every 30 seconds, fetch each known peer's /nodes list (which includes role info)
+        and merge them into bc.nodes + bc.peers_roles. Remove unreachable peers from all sets.
+        If no peers are present, attempt to re-register with the master (bootstrap) node.
+        """
+        self.peer_failures = getattr(self, 'peer_failures', {})
+        while True:
+            current_peers = bc.get_node_addresses().copy()
+            # If we have no peers, try to re-register with the master/bootstrap node
+            if not current_peers:
+                print("[GOSSIP] No peers found, attempting to re-register with bootstrap/master node at", BOOTSTRAP_ADDRESS, flush=True)
+                try:
+                    self.register_with_peer(BOOTSTRAP_ADDRESS)
+                    print("[GOSSIP] Re-registration attempt complete. Current peers:", bc.get_node_addresses(), flush=True)
+                except Exception as e:
+                    print(f"[GOSSIP] Failed to re-register with master: {e}", flush=True)
+                current_peers = bc.get_node_addresses().copy()
+            for peer in current_peers:
+                try:
+                    host_port = get_pod_host_port(peer)
+                    r = requests.get(f"http://{host_port}/nodes", timeout=3)
+                    if r.status_code == 200:
+                        # Reset failure count
+                        self.peer_failures[peer] = 0
+                        their_list = r.json().get("peers", [])
+                        for pinfo in their_list:
+                            addr = pinfo.get("address")
+                            role = pinfo.get("role")
+                            if addr and role:
+                                # Only add if reachable
+                                try:
+                                    host_port2 = get_pod_host_port(addr)
+                                    r2 = requests.get(f"http://{host_port2}/chain", timeout=2)
+                                    if r2.status_code == 200:
+                                        bc.register_node(addr, is_local=False)
+                                        bc.set_peer_role(addr, role)
+                                except Exception:
+                                    continue
+                    else:
+                        self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
+
+                    if self.peer_failures[peer] >= 3:
+                        bc.nodes.discard(peer)
+                        bc.peers_roles.pop(peer, None)
+                        bc.master_peers.discard(peer)
+                        print(f"Removed unreachable peer after 3 failures: {peer}")
+                        print(f"[DEBUG] After removal, nodes: {bc.nodes}")
+                        print(f"[DEBUG] After removal, master_peers: {bc.master_peers}")
+                except requests.exceptions.RequestException:
+                    self.peer_failures[peer] = self.peer_failures.get(peer, 0) + 1
+
+                    if self.peer_failures[peer] >= 3:
+                        bc.nodes.discard(peer)
+                        bc.peers_roles.pop(peer, None)
+                        bc.master_peers.discard(peer)
+                        print(f"Removed unreachable peer after 3 failures: {peer}")
+                        print(f"[DEBUG] After removal, nodes: {bc.nodes}")
+                        print(f"[DEBUG] After removal, master_peers: {bc.master_peers}")
+                        # Enhanced: Immediately try to re-register with bootstrap/master node
+                        try:
+                            self.register_with_peer(BOOTSTRAP_ADDRESS)
+                            print(f"[GOSSIP] Peer removal triggered re-registration with master at {BOOTSTRAP_ADDRESS}")
+                        except Exception as e:
+                            print(f"[GOSSIP] Re-registration with master failed: {e}")
+            print(f"[DEBUG] End of gossip cycle, nodes: {bc.nodes}")
+            print(f"[DEBUG] End of gossip cycle, master_peers: {bc.master_peers}")
+            sleep(30)
+
+    def periodic_chain_sync(self):
+        while True:
+            try:
+                # Call the /sync endpoint to resolve conflicts
+                requests.get(f"http://localhost:{self.PORT}/sync", timeout=5)
+            except Exception as e:
+                print(f"[SYNC] Error during periodic sync: {e}")
+            sleep(30)
+
+def get_host_port(peer):
+    # peer is like "provider-service:5004:provider-deployment-5f7d7559cd-8mmvn"
+    # For service-level communication, extract just service:port
+    if ':' in peer:
+        parts = peer.split(':')
+        if len(parts) >= 2:
+            # Extract service name and port, ignore container ID/deployment name
+            service_name = parts[0]
+            port = parts[1]
+            
+            # Handle Kubernetes service names (with hyphens)
+            if service_name.endswith('-service'):
+                # This is a Kubernetes service name - use the service name directly
+                return f"{service_name}:{port}"
+            else:
+                # This is a Docker Swarm service name or other format
+                return f"{service_name}:{port}"
+    
+    # Fallback to original peer address
+    return peer
+
+def get_pod_host_port(peer):
+    """
+    Resolve a stored peer triple to direct pod-to-pod address.
+    Expected formats:
+      - "pod_ip:port:pod_name" (preferred) → "pod_ip:port"
+      - "service:port:pod_name" → resolves pod_name to IP → "pod_ip:port" (best-effort)
+      - "service:port" → returns as-is (service LB)
+    """
+    parts = peer.split(':')
+    if len(parts) >= 2:
+        host_or_svc, port = parts[0], parts[1]
+        # If first segment looks like an IP, just use it
+        try:
+            socket.inet_aton(host_or_svc)
+            return f"{host_or_svc}:{port}"
+        except OSError:
+            pass
+
+        # If we also have a pod_name, try to resolve pod_name to IP via DNS
+        if len(parts) == 3:
+            _, _, pod_name = parts
+            namespace = os.environ.get("NAMESPACE", "blockchain-microservices")
+            # Try the pod FQDN first; if it resolves, use its IP
+            pod_fqdn = f"{pod_name}.{namespace}.pod.cluster.local"
+            try:
+                pod_ip = socket.gethostbyname(pod_fqdn)
+                return f"{pod_ip}:{port}"
+            except socket.gaierror:
+                # Fallback: return service-level addressing if we cannot resolve pod
+                return f"{host_or_svc}:{port}"
+
+        # No pod specified; return service-level address
+        return f"{host_or_svc}:{port}"
+
+    return peer
+
+def get_kubernetes_service_name(service_name):
+    """Convert service name to Kubernetes DNS format"""
+    if service_name.endswith('-service'):
+        return f"{service_name}.blockchain-microservices.svc.cluster.local"
+    return service_name
+
+def discover_kubernetes_peers():
+    """Discover peers using Kubernetes DNS service discovery"""
+    # Get current namespace
+    namespace = os.environ.get('NAMESPACE', 'blockchain-microservices')
+    
+    # List of services to discover
+    services = ['master-service', 'requester-service', 'provider-service']
+    discovered_peers = []
+    
+    for service in services:
+        try:
+            # Try to resolve the service DNS
+            service_dns = f"{service}.{namespace}.svc.cluster.local"
+            socket.gethostbyname(service_dns)
+            discovered_peers.append(service_dns)
+        except socket.gaierror:
+            # Service not found, skip
+            continue
+    
+    return discovered_peers
+
+def get_jwt_token_for_node():
+    """
+    Get JWT token with automatic refresh. Caches token and refreshes before expiration.
+    Returns None if unable to get token after retries.
+    """
+    global _jwt_token_cache
+    current_time = time()
+    
+    # Check if we have a valid cached token (refresh 60 seconds before expiration)
+    if (_jwt_token_cache["token"] and 
+        _jwt_token_cache["expires_at"] > current_time + 60):
+        return _jwt_token_cache["token"]
+    
+    # Need to get a new token
+    issuer_url = os.environ.get("JWT_ISSUER_URL", "http://jwt-issuer-service:8443")
+    api_key = os.environ.get("NODE_API_KEY", "GxhLsgzHORw1rTDJMX3L2T85i9r52bQlLIhWxpGYjhA=")
+    
+    print(f"[JWT] Fetching new token from {issuer_url}/token")
+    
+    for attempt in range(5):
+        try:
+            resp = requests.post(f"{issuer_url}/token", headers={"Authorization": f"Bearer {api_key}"}, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                token = data["token"]
+                expires_in = data.get("expires_in", 600)  # Default 10 minutes
+                
+                # Cache token with expiration time
+                _jwt_token_cache["token"] = token
+                _jwt_token_cache["expires_at"] = current_time + expires_in
+                
+                print(f"[JWT] Got fresh token, expires in {expires_in}s")
+                return token
+            else:
+                print(f"[JWT] Failed to get token: {resp.status_code} {resp.text}")
+        except Exception as e:
+            print(f"[JWT] Error getting token (attempt {attempt+1}/5): {e}")
+        
+        if attempt < 4:  # Don't sleep after last attempt
+            sleep(2)
+    
+    print("[JWT] Failed to get token after 5 attempts")
+    return None
+
+def get_jwt_token_with_retry(max_retries=3):
+    """
+    Get JWT token with additional retry logic for critical operations.
+    Returns None if unable to get token.
+    """
+    for attempt in range(max_retries):
+        token = get_jwt_token_for_node()
+        if token:
+            return token
+        print(f"[JWT] Retry {attempt+1}/{max_retries} for token")
+        sleep(1)
+    return None
+
+def sync_chain_prefer_masters() -> bool:
+    """
+    Sync local chain preferring master peers first. Only if no longer valid chain
+    is found among masters, check other peers. Returns True if chain replaced.
+    """
+    replaced = False
+    longest_chain = bc.chain
+
+    # Resolve master peers list
+    master_peers: list[str] = []
+    if hasattr(bc, 'master_peers') and bc.master_peers:
+        master_peers = list(bc.master_peers)
+    if not master_peers:
+        # Fallback: detect masters from known peers
+        for peer in bc.get_node_addresses():
+            if bc.peers_roles.get(peer) == "master":
+                master_peers.append(peer)
+
+    # 1) Try masters
+    for peer in master_peers:
+        try:
+            host_port = get_pod_host_port(peer)  # Use individual pod addresses
+            r = requests.get(f"http://{host_port}/chain", timeout=3)
+            if r.status_code == 200:
+                data = r.json()
+                length = data.get('length')
+                chain = data.get('chain')
+                if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                    longest_chain = chain
+                    replaced = True
+        except Exception:
+            continue
+
+    # 2) Only if there are no master peers at all, try other peers
+    if not master_peers:
+        for peer in bc.get_node_addresses():
+            if peer in master_peers:
+                continue
+            try:
+                host_port = get_pod_host_port(peer)  # Use individual pod addresses
+                r = requests.get(f"http://{host_port}/chain", timeout=3)
+                if r.status_code == 200:
+                    data = r.json()
+                    length = data.get('length')
+                    chain = data.get('chain')
+                    if length and chain and length > len(longest_chain) and bc.valid_chain(chain):
+                        longest_chain = chain
+                        replaced = True
+            except Exception:
+                continue
+
+    if replaced:
+        bc.chain = longest_chain.copy()
+    return replaced
+
+def broadcast_block_with_priority(block: dict) -> None:
+    """
+    Broadcast a block with priority: masters → providers → other peers.
+    Uses JWT for auth and respects Kubernetes/Docker addressing via get_pod_host_port.
+    """
+    all_peers = bc.get_node_addresses()
+    print(f"[BROADCAST_DEBUG] All peers: {all_peers}")
+
+    master_peers: list[str] = []
+    if hasattr(bc, 'master_peers') and bc.master_peers:
+        master_peers = list(bc.master_peers)
+    if not master_peers:
+        for peer in all_peers:
+            if bc.peers_roles.get(peer) == 'master':
+                master_peers.append(peer)
+
+    provider_peers = [p for p in all_peers if p not in master_peers and bc.peers_roles.get(p) == 'provider']
+    other_peers    = [p for p in all_peers if p not in master_peers and p not in provider_peers]
+
+    print(f"[BROADCAST_DEBUG] Master peers: {master_peers}")
+    print(f"[BROADCAST_DEBUG] Provider peers: {provider_peers}")
+    print(f"[BROADCAST_DEBUG] Other peers: {other_peers}")
+    print(f"[BROADCAST_DEBUG] Current node role: {bc.peers_roles.get(bc.local_node)}")
+
+    jwt_token = get_jwt_token_with_retry()
+    headers = {"Authorization": f"Bearer {jwt_token}"} if jwt_token else {}
+
+    def post_block(peers: list[str]):
+        print(f"[BROADCAST_DEBUG] Broadcasting to {len(peers)} peers: {peers}")
+        for peer in peers:
+            try:
+                host_port = get_pod_host_port(peer)  # Use individual pod addresses
+                print(f"[BROADCAST_DEBUG] Sending block to {peer} at {host_port}")
+                requests.post(f"http://{host_port}/receive_block", json={'block': block}, headers=headers, timeout=3)
+            except Exception as e:
+                print(f"[BROADCAST_DEBUG] Failed to send to {peer}: {e}")
+                continue
+
+    # Priority order
+    post_block(master_peers)
+    post_block(provider_peers)
+    post_block(other_peers)
+
+def mine_and_broadcast_transactions(transactions: list[dict], mined_by_identifier: str) -> dict:
+    """
+    Centralized miner: sync (masters→others), mine one block with provided
+    transactions, then broadcast (masters→providers→others). Returns the block.
+    """
+    print(f"[MINING_DEBUG] Starting mine_and_broadcast_transactions with {len(transactions)} transactions")
+    try:
+        # Metrics start
+        bc.startTime.append(time())
+        print(f"[MINING_DEBUG] Added startTime metric")
+
+        # Sync
+        try:
+            sync_chain_prefer_masters()
+            print(f"[MINING_DEBUG] Chain sync completed")
+        except Exception as e:
+            print(f"[MINING_DEBUG] Chain sync failed: {e}")
+            pass
+        bc.chainSyncedTime.append(time())
+        print(f"[MINING_DEBUG] Added chainSyncedTime metric")
+
+        # Mine
+        bc.current_transactions = transactions or []
+        last_proof = bc.last_block['proof']
+        print(f"[MINING_DEBUG] Starting proof of work with last_proof: {last_proof}")
+        proof = bc.proof_of_work(last_proof)
+        print(f"[MINING_DEBUG] Proof of work completed: {proof}")
+        block = bc.new_block(proof, mined_by=mined_by_identifier)
+        print(f"[MINING_DEBUG] New block created: {block['index']}")
+        bc.blockMinedTime.append(time())
+        print(f"[MINING_DEBUG] Added blockMinedTime metric")
+
+        # Broadcast
+        print(f"[MINING_DEBUG] Starting broadcast to peers")
+        broadcast_block_with_priority(block)
+        print(f"[MINING_DEBUG] Broadcast completed")
+        bc.blockPropagationTime.append(time())
+        print(f"[MINING_DEBUG] Added blockPropagationTime metric")
+        return block
+    except Exception as e:
+        print(f"[MINING_DEBUG] Exception in mine_and_broadcast_transactions: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+def mine_contract_and_broadcast(contract_id: str, contract_payload: dict, sender_identifier: str, recipient_role: str = 'provider') -> dict:
+    """
+    Centralized flow for contract transactions: sync (masters→others),
+    create a single contract transaction, mine, and broadcast with priority.
+    Returns the mined block.
+    """
+    # Metrics start
+    bc.startTime.append(time())
+
+    # Sync
+    try:
+        sync_chain_prefer_masters()
+    except Exception:
+        pass
+    bc.chainSyncedTime.append(time())
+
+    # Create contract transaction
+    bc.new_transaction(
+        sender=sender_identifier,
+        recipient=recipient_role,
+        contract_id=contract_id,
+        contract_payload=contract_payload
+    )
+
+    # Mine
+    last_proof = bc.last_block['proof']
+    proof = bc.proof_of_work(last_proof)
+    block = bc.new_block(proof, mined_by=sender_identifier)
+    bc.blockMinedTime.append(time())
+
+    # Broadcast
+    broadcast_block_with_priority(block)
+    bc.blockPropagationTime.append(time())
+    return block
+
+# ─── If someone runs node.py directly, bail out ────────────────────────────────
+if __name__ == '__main__':
+    print("node.py is a library. Run your Flask microservices (provider.py, requester.py).")
+    sys.exit(0)
